@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   FileText, 
@@ -24,6 +24,7 @@ export default function Dashboard() {
   const dateLocale = language === 'es' ? es : it;
   
   const [kpis, setKpis] = useState<DashboardKPIs>({ ordersToday: 0, ordersWeek: 0, errorRate: 0, pendingDLQ: 0, avgProcessingTime: 0, successRate: 100 });
+  const [allOrders, setAllOrders] = useState<OrderIntake[]>([]);
   const [recentOrders, setRecentOrders] = useState<OrderIntake[]>([]);
   const [pendingDLQ, setPendingDLQ] = useState<DLQOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +39,7 @@ export default function Dashboard() {
           fetchDLQOrders(),
         ]);
         setKpis(kpisData);
+        setAllOrders(ordersData);
         setRecentOrders(ordersData.slice(0, 5));
         setPendingDLQ(dlqData.filter((o) => !o.resolved).slice(0, 5));
       } catch (error) {
@@ -194,13 +196,13 @@ export default function Dashboard() {
           <div>
             <p className="text-sm font-medium text-muted-foreground">{t.dashboard.pendingOrders}</p>
             <p className="mt-1 text-2xl font-semibold">
-              {mockOrders.filter((o) => o.status === 'pending').length}
+              {allOrders.filter((o) => o.status === 'pending').length}
             </p>
           </div>
           <div>
             <p className="text-sm font-medium text-muted-foreground">{t.dashboard.processing}</p>
             <p className="mt-1 text-2xl font-semibold">
-              {mockOrders.filter((o) => o.status === 'processing').length}
+              {allOrders.filter((o) => o.status === 'processing').length}
             </p>
           </div>
           <div>
