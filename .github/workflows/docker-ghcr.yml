@@ -30,4 +30,5 @@ jobs:
             ghcr.io/torfer26/bvg-order-navigator:latest
             ghcr.io/torfer26/bvg-order-navigator:${{ github.sha }}
           build-args: |
-            VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL }}
+            VITE_API_BASE_URL=${{ vars.VITE_API_BASE_URL }}
+            VITE_N8N_REPROCESS_WEBHOOK_URL=${{ vars.VITE_N8N_REPROCESS_WEBHOOK_URL }}
