@@ -4,14 +4,18 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { mockOrders, mockClients } from '@/lib/mockData';
+import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderFilters } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 
 const PAGE_SIZE = 10;
 
 export default function Orders() {
   const navigate = useNavigate();
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [filters, setFilters] = useState<OrderFilters>({});
   const [page, setPage] = useState(1);
 
@@ -52,12 +56,12 @@ export default function Orders() {
   const columns: Column<OrderIntake>[] = [
     {
       key: 'orderCode',
-      header: 'Codice Ordine',
+      header: t.orders.orderCode,
       cell: (row) => <span className="font-medium">{row.orderCode}</span>,
     },
     {
       key: 'client',
-      header: 'Cliente',
+      header: t.common.client,
       cell: (row) => (
         <div>
           <p className="font-medium">{row.clientName}</p>
@@ -67,7 +71,7 @@ export default function Orders() {
     },
     {
       key: 'subject',
-      header: 'Oggetto',
+      header: t.orders.subject,
       cell: (row) => (
         <p className="max-w-[300px] truncate" title={row.subject}>
           {row.subject}
@@ -76,19 +80,19 @@ export default function Orders() {
     },
     {
       key: 'lines',
-      header: 'Righe',
+      header: t.orders.linesCount,
       cell: (row) => row.linesCount,
       className: 'text-center',
     },
     {
       key: 'status',
-      header: 'Stato',
+      header: t.common.status,
       cell: (row) => <OrderStatusBadge status={row.status} />,
     },
     {
       key: 'receivedAt',
-      header: 'Ricevuto',
-      cell: (row) => format(new Date(row.receivedAt), 'dd/MM/yyyy HH:mm', { locale: it }),
+      header: t.orders.receivedAt,
+      cell: (row) => format(new Date(row.receivedAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale }),
     },
   ];
 
@@ -105,34 +109,32 @@ export default function Orders() {
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title">Ordini Intake</h1>
-        <p className="page-description">
-          Visualizza e gestisci gli ordini ricevuti via email
-        </p>
+        <h1 className="page-title">{t.orders.title}</h1>
+        <p className="page-description">{t.orders.subtitle}</p>
       </div>
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: 'Cerca', placeholder: 'Cerca per codice, cliente, oggetto...' },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: t.orders.searchPlaceholder },
           {
             key: 'clientId',
             type: 'select',
-            label: 'Cliente',
+            label: t.common.client,
             options: mockClients.map((c) => ({ value: c.id, label: c.name })),
           },
           {
             key: 'status',
             type: 'select',
-            label: 'Stato',
+            label: t.common.status,
             options: [
-              { value: 'pending', label: 'In attesa' },
-              { value: 'processing', label: 'In elaborazione' },
-              { value: 'completed', label: 'Completato' },
-              { value: 'error', label: 'Errore' },
+              { value: 'pending', label: t.orderStatus.pending },
+              { value: 'processing', label: t.orderStatus.processing },
+              { value: 'completed', label: t.orderStatus.completed },
+              { value: 'error', label: t.orderStatus.error },
             ],
           },
-        { key: 'dateFrom', type: 'date', label: 'Da' },
-          { key: 'dateTo', type: 'date', label: 'A' },
+          { key: 'dateFrom', type: 'date', label: t.common.from },
+          { key: 'dateTo', type: 'date', label: t.common.to },
         ]}
         values={filters as Record<string, string | undefined>}
         onChange={handleFilterChange}
@@ -144,7 +146,7 @@ export default function Orders() {
         data={paginatedOrders}
         keyExtractor={(row) => row.id}
         onRowClick={(row) => navigate(`/orders/${row.id}`)}
-        emptyMessage="Nessun ordine trovato con i filtri selezionati"
+        emptyMessage={t.orders.noOrdersFound}
         pagination={{
           page,
           pageSize: PAGE_SIZE,

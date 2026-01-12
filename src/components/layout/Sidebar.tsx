@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -22,24 +23,25 @@ interface SidebarProps {
 interface NavItem {
   to: string;
   icon: React.ElementType;
-  label: string;
+  labelKey: 'dashboard' | 'orders' | 'dlq' | 'clients' | 'remitentes' | 'holidays' | 'locationAliases' | 'users';
   roles?: ('admin' | 'ops' | 'read')[];
 }
 
 const navItems: NavItem[] = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/orders', icon: FileText, label: 'Ordini Intake' },
-  { to: '/dlq', icon: AlertTriangle, label: 'DLQ' },
-  { to: '/masters/clients', icon: Building2, label: 'Clienti', roles: ['admin'] },
-  { to: '/masters/remitentes', icon: Package, label: 'Remitentes', roles: ['admin'] },
-  { to: '/masters/holidays', icon: Settings, label: 'Festività', roles: ['admin'] },
-  { to: '/masters/aliases', icon: Settings, label: 'Alias Località', roles: ['admin'] },
-  { to: '/users', icon: Users, label: 'Utenti', roles: ['admin'] },
+  { to: '/dashboard', icon: LayoutDashboard, labelKey: 'dashboard' },
+  { to: '/orders', icon: FileText, labelKey: 'orders' },
+  { to: '/dlq', icon: AlertTriangle, labelKey: 'dlq' },
+  { to: '/masters/clients', icon: Building2, labelKey: 'clients', roles: ['admin'] },
+  { to: '/masters/remitentes', icon: Package, labelKey: 'remitentes', roles: ['admin'] },
+  { to: '/masters/holidays', icon: Settings, labelKey: 'holidays', roles: ['admin'] },
+  { to: '/masters/aliases', icon: Settings, labelKey: 'locationAliases', roles: ['admin'] },
+  { to: '/users', icon: Users, labelKey: 'users', roles: ['admin'] },
 ];
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
   const { hasRole } = useAuth();
+  const { t } = useLanguage();
 
   const filteredItems = navItems.filter((item) => {
     if (!item.roles) return true;
@@ -75,6 +77,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {filteredItems.map((item) => {
           const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
           const Icon = item.icon;
+          const label = t.nav[item.labelKey];
           
           return (
             <NavLink
@@ -85,10 +88,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 isActive ? 'nav-item-active' : 'nav-item-inactive',
                 collapsed && 'justify-center px-2'
               )}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? label : undefined}
             >
               <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span>{label}</span>}
             </NavLink>
           );
         })}
@@ -108,7 +111,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           ) : (
             <>
               <ChevronLeft className="h-5 w-5" />
-              <span>Comprimi</span>
+              <span>{t.nav.collapse}</span>
             </>
           )}
         </button>

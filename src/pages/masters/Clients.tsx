@@ -4,9 +4,10 @@ import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { mockClients } from '@/lib/mockData';
+import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { Client } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import {
   Dialog,
@@ -22,6 +23,9 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 
 export default function Clients() {
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [search, setSearch] = useState('');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -57,51 +61,51 @@ export default function Clients() {
 
   const handleSave = () => {
     if (editingClient) {
-      toast.success(`Cliente ${formData.name} aggiornato`);
+      toast.success(interpolate(t.clients.clientUpdated, { name: formData.name }));
     } else {
-      toast.success(`Cliente ${formData.name} creato`);
+      toast.success(interpolate(t.clients.clientCreated, { name: formData.name }));
     }
     setIsDialogOpen(false);
   };
 
   const handleDelete = (client: Client) => {
-    toast.success(`Cliente ${client.name} eliminato`);
+    toast.success(interpolate(t.clients.clientDeleted, { name: client.name }));
   };
 
   const columns: Column<Client>[] = [
     {
       key: 'code',
-      header: 'Codice',
+      header: t.common.code,
       cell: (row) => <span className="font-mono font-medium">{row.code}</span>,
     },
     {
       key: 'name',
-      header: 'Nome',
+      header: t.common.name,
       cell: (row) => row.name,
     },
     {
       key: 'email',
-      header: 'Email',
+      header: t.common.email,
       cell: (row) => row.email || '-',
     },
     {
       key: 'active',
-      header: 'Stato',
+      header: t.common.status,
       cell: (row) =>
         row.active ? (
-          <StatusBadge status="success" label="Attivo" />
+          <StatusBadge status="success" label={t.common.active} />
         ) : (
-          <StatusBadge status="neutral" label="Inattivo" />
+          <StatusBadge status="neutral" label={t.common.inactive} />
         ),
     },
     {
       key: 'updatedAt',
-      header: 'Ultimo Aggiornamento',
-      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: it }),
+      header: t.clients.lastUpdate,
+      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: dateLocale }),
     },
     {
       key: 'actions',
-      header: 'Azioni',
+      header: t.common.actions,
       cell: (row) => (
         <div className="flex gap-2">
           <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
@@ -124,17 +128,17 @@ export default function Clients() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="page-header mb-0">
-          <h1 className="page-title">Clienti</h1>
-          <p className="page-description">Gestisci l'anagrafica clienti</p>
+          <h1 className="page-title">{t.clients.title}</h1>
+          <p className="page-description">{t.clients.subtitle}</p>
         </div>
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" />
-          Nuovo Cliente
+          {t.clients.newClient}
         </Button>
       </div>
 
       <FilterBar
-        filters={[{ key: 'search', type: 'search', label: 'Cerca', placeholder: 'Cerca per codice, nome, email...' }]}
+        filters={[{ key: 'search', type: 'search', label: t.common.search, placeholder: t.clients.searchPlaceholder }]}
         values={{ search }}
         onChange={(_, value) => setSearch(value || '')}
         onClear={() => setSearch('')}
@@ -144,51 +148,49 @@ export default function Clients() {
         columns={columns}
         data={filteredClients}
         keyExtractor={(row) => row.id}
-        emptyMessage="Nessun cliente trovato"
+        emptyMessage={t.clients.noClientsFound}
       />
 
       {/* Edit/Create Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingClient ? 'Modifica Cliente' : 'Nuovo Cliente'}</DialogTitle>
+            <DialogTitle>{editingClient ? t.clients.editClient : t.clients.newClient}</DialogTitle>
             <DialogDescription>
-              {editingClient
-                ? 'Modifica i dati del cliente'
-                : 'Inserisci i dati del nuovo cliente'}
+              {editingClient ? t.clients.editClient : t.clients.newClient}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Codice</Label>
+              <Label htmlFor="code">{t.common.code}</Label>
               <Input
                 id="code"
                 value={formData.code}
                 onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder="es. METRO"
+                placeholder="ej. METRO"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Nome</Label>
+              <Label htmlFor="name">{t.common.name}</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="es. Metro S.p.A."
+                placeholder="ej. Metro S.p.A."
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t.common.email}</Label>
               <Input
                 id="email"
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="ordini@esempio.it"
+                placeholder="pedidos@ejemplo.com"
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label htmlFor="active">Attivo</Label>
+              <Label htmlFor="active">{t.common.active}</Label>
               <Switch
                 id="active"
                 checked={formData.active}
@@ -198,9 +200,9 @@ export default function Clients() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Annulla
+              {t.common.cancel}
             </Button>
-            <Button onClick={handleSave}>Salva</Button>
+            <Button onClick={handleSave}>{t.common.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

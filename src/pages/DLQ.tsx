@@ -4,9 +4,10 @@ import { FilterBar } from '@/components/shared/FilterBar';
 import { DLQStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { mockDLQOrders } from '@/lib/mockData';
+import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { DLQOrder, DLQFilters } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { RefreshCw, CheckCircle2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,6 +24,9 @@ const PAGE_SIZE = 10;
 
 export default function DLQ() {
   const { hasRole } = useAuth();
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [filters, setFilters] = useState<DLQFilters>({});
   const [page, setPage] = useState(1);
   const [selectedDLQ, setSelectedDLQ] = useState<DLQOrder | null>(null);
@@ -65,9 +69,9 @@ export default function DLQ() {
     setIsProcessing(false);
     
     if (actionType === 'resolve') {
-      toast.success(`Ordine ${selectedDLQ.orderCode} marcato come risolto`);
+      toast.success(interpolate(t.dlq.markedResolved, { orderCode: selectedDLQ.orderCode }));
     } else {
-      toast.success(`Reinvio ordine ${selectedDLQ.orderCode} avviato`);
+      toast.success(interpolate(t.dlq.retryStarted, { orderCode: selectedDLQ.orderCode }));
     }
     
     setSelectedDLQ(null);
@@ -77,17 +81,17 @@ export default function DLQ() {
   const columns: Column<DLQOrder>[] = [
     {
       key: 'orderCode',
-      header: 'Codice Ordine',
+      header: t.orders.orderCode,
       cell: (row) => <span className="font-medium">{row.orderCode}</span>,
     },
     {
       key: 'client',
-      header: 'Cliente',
+      header: t.common.client,
       cell: (row) => row.clientName,
     },
     {
       key: 'error',
-      header: 'Errore',
+      header: t.dlq.errorCode,
       cell: (row) => (
         <div>
           <StatusBadge status="error" label={row.errorCode} />
@@ -97,26 +101,26 @@ export default function DLQ() {
     },
     {
       key: 'retryCount',
-      header: 'Tentativi',
+      header: t.dlq.retryCount,
       cell: (row) => row.retryCount,
       className: 'text-center',
     },
     {
       key: 'status',
-      header: 'Stato',
+      header: t.common.status,
       cell: (row) => <DLQStatusBadge resolved={row.resolved} />,
     },
     {
       key: 'createdAt',
-      header: 'Data',
-      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy HH:mm', { locale: it }),
+      header: t.common.date,
+      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale }),
     },
   ];
 
   if (hasRole(['admin', 'ops'])) {
     columns.push({
       key: 'actions',
-      header: 'Azioni',
+      header: t.common.actions,
       cell: (row) =>
         !row.resolved ? (
           <div className="flex gap-2">
@@ -130,7 +134,7 @@ export default function DLQ() {
               }}
             >
               <CheckCircle2 className="mr-1 h-4 w-4" />
-              Risolvi
+              {t.dlq.resolve}
             </Button>
             <Button
               variant="outline"
@@ -142,12 +146,12 @@ export default function DLQ() {
               }}
             >
               <RefreshCw className="mr-1 h-4 w-4" />
-              Riprova
+              {t.dlq.retry}
             </Button>
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">
-            Risolto da {row.resolvedBy}
+            {t.dlq.resolvedBy} {row.resolvedBy}
           </span>
         ),
     });
@@ -172,35 +176,33 @@ export default function DLQ() {
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title">Dead Letter Queue</h1>
-        <p className="page-description">
-          Gestisci gli ordini che non sono stati elaborati correttamente
-        </p>
+        <h1 className="page-title">{t.dlq.title}</h1>
+        <p className="page-description">{t.dlq.subtitle}</p>
       </div>
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: 'Cerca', placeholder: 'Cerca per codice, cliente, errore...' },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: t.dlq.searchPlaceholder },
           {
             key: 'resolved',
             type: 'select',
-            label: 'Stato',
+            label: t.common.status,
             options: [
-              { value: 'false', label: 'Da risolvere' },
-              { value: 'true', label: 'Risolti' },
+              { value: 'false', label: t.dlq.unresolved },
+              { value: 'true', label: t.dlq.resolved },
             ],
           },
           {
             key: 'errorCode',
             type: 'select',
-            label: 'Tipo errore',
+            label: t.dlq.errorType,
             options: errorCodes,
           },
         ]}
         values={{
           ...filters,
           resolved: filters.resolved === undefined ? undefined : String(filters.resolved),
-        }}
+        } as Record<string, string | undefined>}
         onChange={handleFilterChange}
         onClear={handleClearFilters}
       />
@@ -209,7 +211,7 @@ export default function DLQ() {
         columns={columns}
         data={paginatedOrders}
         keyExtractor={(row) => row.id}
-        emptyMessage="Nessun ordine nella DLQ"
+        emptyMessage={t.dlq.noDLQOrders}
         pagination={{
           page,
           pageSize: PAGE_SIZE,
@@ -223,21 +225,21 @@ export default function DLQ() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {actionType === 'resolve' ? 'Conferma Risoluzione' : 'Conferma Reinvio'}
+              {actionType === 'resolve' ? t.dlq.confirmResolve : t.dlq.confirmRetry}
             </DialogTitle>
             <DialogDescription>
               {actionType === 'resolve'
-                ? `Sei sicuro di voler marcare l'ordine ${selectedDLQ?.orderCode} come risolto?`
-                : `Sei sicuro di voler reinviare l'ordine ${selectedDLQ?.orderCode} per rielaborazione?`}
+                ? interpolate(t.dlq.resolveMessage, { orderCode: selectedDLQ?.orderCode || '' })
+                : interpolate(t.dlq.retryMessage, { orderCode: selectedDLQ?.orderCode || '' })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setSelectedDLQ(null); setActionType(null); }}>
-              Annulla
+              {t.common.cancel}
             </Button>
             <Button onClick={handleAction} disabled={isProcessing}>
               {isProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Conferma
+              {t.common.confirm}
             </Button>
           </DialogFooter>
         </DialogContent>

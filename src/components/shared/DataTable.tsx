@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export interface Column<T> {
   key: string;
@@ -40,9 +41,10 @@ export function DataTable<T>({
   keyExtractor,
   onRowClick,
   loading = false,
-  emptyMessage = 'Nessun dato disponibile',
+  emptyMessage,
   pagination,
 }: DataTableProps<T>) {
+  const { t } = useLanguage();
   const totalPages = pagination ? Math.ceil(pagination.total / pagination.pageSize) : 1;
 
   return (
@@ -64,14 +66,14 @@ export function DataTable<T>({
                 <TableCell colSpan={columns.length} className="h-32 text-center">
                   <div className="flex items-center justify-center gap-2">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <span className="text-muted-foreground">Caricamento...</span>
+                    <span className="text-muted-foreground">{t.common.loading}</span>
                   </div>
                 </TableCell>
               </TableRow>
             ) : data.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
-                  {emptyMessage}
+                  {emptyMessage || t.common.noData}
                 </TableCell>
               </TableRow>
             ) : (
@@ -99,8 +101,8 @@ export function DataTable<T>({
       {pagination && totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-border px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            Mostrando {Math.min((pagination.page - 1) * pagination.pageSize + 1, pagination.total)} -{' '}
-            {Math.min(pagination.page * pagination.pageSize, pagination.total)} di {pagination.total}
+            {t.common.showing} {Math.min((pagination.page - 1) * pagination.pageSize + 1, pagination.total)} -{' '}
+            {Math.min(pagination.page * pagination.pageSize, pagination.total)} {t.common.of} {pagination.total}
           </p>
           <div className="flex items-center gap-1">
             <Button
@@ -122,7 +124,7 @@ export function DataTable<T>({
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="px-3 text-sm">
-              Pagina {pagination.page} di {totalPages}
+              {t.common.page} {pagination.page} {t.common.of} {totalPages}
             </span>
             <Button
               variant="outline"

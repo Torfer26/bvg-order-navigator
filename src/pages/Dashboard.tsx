@@ -10,13 +10,17 @@ import {
   Activity
 } from 'lucide-react';
 import { KPICard } from '@/components/shared/KPICard';
-import { StatusBadge, OrderStatusBadge, DLQStatusBadge } from '@/components/shared/StatusBadge';
+import { OrderStatusBadge, DLQStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { getDashboardKPIs, mockOrders, mockDLQOrders } from '@/lib/mockData';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 
 export default function Dashboard() {
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const kpis = useMemo(() => getDashboardKPIs(), []);
   const recentOrders = mockOrders.slice(0, 5);
   const pendingDLQ = mockDLQOrders.filter((o) => !o.resolved).slice(0, 5);
@@ -24,39 +28,37 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title">Dashboard</h1>
-        <p className="page-description">
-          Panoramica delle operazioni di oggi
-        </p>
+        <h1 className="page-title">{t.dashboard.title}</h1>
+        <p className="page-description">{t.dashboard.subtitle}</p>
       </div>
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPICard
-          title="Ordini Oggi"
+          title={t.dashboard.ordersToday}
           value={kpis.ordersToday}
           icon={FileText}
-          subtitle={`${kpis.ordersWeek} ultimi 7 giorni`}
+          subtitle={`${kpis.ordersWeek} ${t.dashboard.last7days}`}
         />
         <KPICard
-          title="Tasso Successo"
+          title={t.dashboard.successRate}
           value={`${kpis.successRate.toFixed(1)}%`}
           icon={CheckCircle2}
           trend={{ value: 2.5, isPositive: true }}
           iconClassName="bg-success/10"
         />
         <KPICard
-          title="Tempo Medio"
+          title={t.dashboard.avgTime}
           value={`${kpis.avgProcessingTime}m`}
           icon={Clock}
-          subtitle="Elaborazione ordine"
+          subtitle={t.dashboard.orderProcessing}
           iconClassName="bg-info/10"
         />
         <KPICard
-          title="DLQ Pendenti"
+          title={t.dashboard.pendingDLQ}
           value={kpis.pendingDLQ}
           icon={AlertTriangle}
-          subtitle="Da risolvere"
+          subtitle={t.dashboard.toResolve}
           iconClassName={kpis.pendingDLQ > 0 ? 'bg-destructive/10' : 'bg-success/10'}
         />
       </div>
@@ -68,11 +70,11 @@ export default function Dashboard() {
           <div className="section-header">
             <h2 className="section-title flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
-              Ordini Recenti
+              {t.dashboard.recentOrders}
             </h2>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/orders" className="gap-1">
-                Vedi tutti
+                {t.dashboard.viewAll}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
@@ -90,11 +92,11 @@ export default function Dashboard() {
                     <OrderStatusBadge status={order.status} />
                   </div>
                   <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                    {order.clientName} • {order.linesCount} righe
+                    {order.clientName} • {order.linesCount} {t.dashboard.lines}
                   </p>
                 </div>
                 <span className="ml-4 shrink-0 text-sm text-muted-foreground">
-                  {format(new Date(order.receivedAt), 'HH:mm', { locale: it })}
+                  {format(new Date(order.receivedAt), 'HH:mm', { locale: dateLocale })}
                 </span>
               </Link>
             ))}
@@ -106,11 +108,11 @@ export default function Dashboard() {
           <div className="section-header">
             <h2 className="section-title flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-destructive" />
-              DLQ da Risolvere
+              {t.dashboard.dlqToResolve}
             </h2>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/dlq" className="gap-1">
-                Vedi tutti
+                {t.dashboard.viewAll}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
@@ -118,8 +120,8 @@ export default function Dashboard() {
           {pendingDLQ.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <CheckCircle2 className="h-12 w-12 text-success/50" />
-              <p className="mt-3 font-medium">Nessun problema pendente</p>
-              <p className="text-sm text-muted-foreground">Tutti gli ordini sono stati elaborati correttamente</p>
+              <p className="mt-3 font-medium">{t.dashboard.noPendingIssues}</p>
+              <p className="text-sm text-muted-foreground">{t.dashboard.allOrdersProcessed}</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -135,11 +137,11 @@ export default function Dashboard() {
                       <StatusBadge status="error" label={dlq.errorCode} />
                     </div>
                     <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                      {dlq.clientName} • {dlq.retryCount} tentativi
+                      {dlq.clientName} • {dlq.retryCount} {t.dashboard.attempts}
                     </p>
                   </div>
                   <span className="ml-4 shrink-0 text-sm text-muted-foreground">
-                    {format(new Date(dlq.createdAt), 'dd/MM HH:mm', { locale: it })}
+                    {format(new Date(dlq.createdAt), 'dd/MM HH:mm', { locale: dateLocale })}
                   </span>
                 </Link>
               ))}
@@ -153,24 +155,24 @@ export default function Dashboard() {
         <div className="section-header">
           <h2 className="section-title flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
-            Statistiche Rapide
+            {t.dashboard.quickStats}
           </h2>
         </div>
         <div className="grid gap-6 p-5 sm:grid-cols-3">
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Ordini in attesa</p>
+            <p className="text-sm font-medium text-muted-foreground">{t.dashboard.pendingOrders}</p>
             <p className="mt-1 text-2xl font-semibold">
               {mockOrders.filter((o) => o.status === 'pending').length}
             </p>
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">In elaborazione</p>
+            <p className="text-sm font-medium text-muted-foreground">{t.dashboard.processing}</p>
             <p className="mt-1 text-2xl font-semibold">
               {mockOrders.filter((o) => o.status === 'processing').length}
             </p>
           </div>
           <div>
-            <p className="text-sm font-medium text-muted-foreground">Tasso errori (7gg)</p>
+            <p className="text-sm font-medium text-muted-foreground">{t.dashboard.errorRate7d}</p>
             <p className="mt-1 text-2xl font-semibold">
               {kpis.errorRate.toFixed(1)}%
             </p>

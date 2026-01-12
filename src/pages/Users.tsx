@@ -3,9 +3,10 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { User } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { Plus, Pencil, Trash2, Shield, User as UserIcon } from 'lucide-react';
 import {
   Dialog,
@@ -34,12 +35,6 @@ const mockUsers: User[] = [
   { id: '5', email: 'giulia.bianchi@bvg.com', name: 'Giulia Bianchi', role: 'read', createdAt: '2024-03-01T00:00:00Z' },
 ];
 
-const roleLabels: Record<string, string> = {
-  admin: 'Amministratore',
-  ops: 'Operatore',
-  read: 'Visualizzatore',
-};
-
 const roleColors: Record<string, 'default' | 'secondary' | 'outline'> = {
   admin: 'default',
   ops: 'secondary',
@@ -47,9 +42,14 @@ const roleColors: Record<string, 'default' | 'secondary' | 'outline'> = {
 };
 
 export default function Users() {
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [formData, setFormData] = useState({ email: '', name: '', password: '', role: 'read' as User['role'] });
+
+  const roleLabels = t.roles;
 
   const openNew = () => {
     setEditingUser(null);
@@ -64,18 +64,18 @@ export default function Users() {
   };
 
   const handleSave = () => {
-    toast.success(editingUser ? 'Utente aggiornato' : 'Utente creato');
+    toast.success(editingUser ? t.users.userUpdated : t.users.userCreated);
     setIsDialogOpen(false);
   };
 
   const handleDelete = (user: User) => {
-    toast.success(`Utente ${user.name} eliminato`);
+    toast.success(interpolate(t.users.userDeleted, { name: user.name }));
   };
 
   const columns: Column<User>[] = [
     {
       key: 'user',
-      header: 'Utente',
+      header: t.common.name,
       cell: (row) => (
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
@@ -90,7 +90,7 @@ export default function Users() {
     },
     {
       key: 'role',
-      header: 'Ruolo',
+      header: t.users.role,
       cell: (row) => (
         <Badge variant={roleColors[row.role]} className="gap-1">
           <Shield className="h-3 w-3" />
@@ -100,18 +100,18 @@ export default function Users() {
     },
     {
       key: 'lastLogin',
-      header: 'Ultimo Accesso',
+      header: t.users.lastLogin,
       cell: (row) =>
-        row.lastLogin ? format(new Date(row.lastLogin), 'dd/MM/yyyy HH:mm', { locale: it }) : 'Mai',
+        row.lastLogin ? format(new Date(row.lastLogin), 'dd/MM/yyyy HH:mm', { locale: dateLocale }) : t.users.never,
     },
     {
       key: 'createdAt',
-      header: 'Creato',
-      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: it }),
+      header: t.common.created,
+      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }),
     },
     {
       key: 'actions',
-      header: 'Azioni',
+      header: t.common.actions,
       cell: (row) => (
         <div className="flex gap-2">
           <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
@@ -134,12 +134,12 @@ export default function Users() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="page-header mb-0">
-          <h1 className="page-title">Utenti</h1>
-          <p className="page-description">Gestisci gli utenti e i loro permessi</p>
+          <h1 className="page-title">{t.users.title}</h1>
+          <p className="page-description">{t.users.subtitle}</p>
         </div>
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" />
-          Nuovo Utente
+          {t.users.newUser}
         </Button>
       </div>
 
@@ -148,23 +148,23 @@ export default function Users() {
         <div className="flex items-center gap-2">
           <Badge variant="default" className="gap-1">
             <Shield className="h-3 w-3" />
-            Amministratore
+            {roleLabels.admin}
           </Badge>
-          <span className="text-sm text-muted-foreground">Accesso completo + gestione utenti</span>
+          <span className="text-sm text-muted-foreground">{t.users.fullAccess}</span>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="gap-1">
             <Shield className="h-3 w-3" />
-            Operatore
+            {roleLabels.ops}
           </Badge>
-          <span className="text-sm text-muted-foreground">Visualizza + azioni operative</span>
+          <span className="text-sm text-muted-foreground">{t.users.viewAndActions}</span>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="gap-1">
             <Shield className="h-3 w-3" />
-            Visualizzatore
+            {roleLabels.read}
           </Badge>
-          <span className="text-sm text-muted-foreground">Solo visualizzazione</span>
+          <span className="text-sm text-muted-foreground">{t.users.viewOnly}</span>
         </div>
       </div>
 
@@ -172,20 +172,20 @@ export default function Users() {
         columns={columns}
         data={mockUsers}
         keyExtractor={(row) => row.id}
-        emptyMessage="Nessun utente trovato"
+        emptyMessage={t.users.noUsersFound}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingUser ? 'Modifica Utente' : 'Nuovo Utente'}</DialogTitle>
+            <DialogTitle>{editingUser ? t.users.editUser : t.users.newUser}</DialogTitle>
             <DialogDescription>
-              {editingUser ? 'Modifica i dati dell\'utente' : 'Crea un nuovo utente'}
+              {editingUser ? t.users.editUser : t.users.newUser}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Nome</Label>
+              <Label htmlFor="name">{t.common.name}</Label>
               <Input
                 id="name"
                 value={formData.name}
@@ -194,7 +194,7 @@ export default function Users() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t.common.email}</Label>
               <Input
                 id="email"
                 type="email"
@@ -205,7 +205,7 @@ export default function Users() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">
-                Password {editingUser && '(lasciare vuoto per non cambiare)'}
+                {t.auth.password} {editingUser && t.users.passwordHint}
               </Label>
               <Input
                 id="password"
@@ -216,7 +216,7 @@ export default function Users() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Ruolo</Label>
+              <Label>{t.users.role}</Label>
               <Select
                 value={formData.role}
                 onValueChange={(v) => setFormData({ ...formData, role: v as User['role'] })}
@@ -225,18 +225,18 @@ export default function Users() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="admin">Amministratore</SelectItem>
-                  <SelectItem value="ops">Operatore</SelectItem>
-                  <SelectItem value="read">Visualizzatore</SelectItem>
+                  <SelectItem value="admin">{roleLabels.admin}</SelectItem>
+                  <SelectItem value="ops">{roleLabels.ops}</SelectItem>
+                  <SelectItem value="read">{roleLabels.read}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Annulla
+              {t.common.cancel}
             </Button>
-            <Button onClick={handleSave}>Salva</Button>
+            <Button onClick={handleSave}>{t.common.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
