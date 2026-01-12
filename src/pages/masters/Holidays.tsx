@@ -1,12 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { Button } from '@/components/ui/button';
-import { mockHolidays } from '@/lib/mockData';
+import { fetchHolidays } from '@/lib/ordersService';
 import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { Holiday } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
-import { Plus, Pencil, Trash2, CalendarDays } from 'lucide-react';
+import { Plus, Pencil, Trash2, CalendarDays, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -29,10 +29,27 @@ export default function Holidays() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null);
   const [formData, setFormData] = useState({ date: new Date(), name: '', region: '' });
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const data = await fetchHolidays();
+        setHolidays(data);
+      } catch (error) {
+        console.error('Error loading holidays:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const sortedHolidays = useMemo(() => {
-    return [...mockHolidays].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, []);
+    return [...holidays].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [holidays]);
 
   const openNew = () => {
     setEditingHoliday(null);
@@ -94,6 +111,14 @@ export default function Holidays() {
       ),
     },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { DLQStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { mockDLQOrders } from '@/lib/mockData';
+import { fetchDLQOrders } from '@/lib/ordersService';
 import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { DLQOrder, DLQFilters } from '@/types';
 import { format } from 'date-fns';
@@ -32,9 +32,26 @@ export default function DLQ() {
   const [selectedDLQ, setSelectedDLQ] = useState<DLQOrder | null>(null);
   const [actionType, setActionType] = useState<'resolve' | 'retry' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [dlqOrders, setDlqOrders] = useState<DLQOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const data = await fetchDLQOrders();
+        setDlqOrders(data);
+      } catch (error) {
+        console.error('Error loading DLQ orders:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const filteredOrders = useMemo(() => {
-    return mockDLQOrders.filter((order) => {
+    return dlqOrders.filter((order) => {
       if (filters.resolved !== undefined && order.resolved !== filters.resolved) return false;
       if (filters.errorCode && order.errorCode !== filters.errorCode) return false;
       if (filters.search) {
@@ -57,9 +74,9 @@ export default function DLQ() {
   }, [filteredOrders, page]);
 
   const errorCodes = useMemo(() => {
-    const codes = new Set(mockDLQOrders.map((o) => o.errorCode));
+    const codes = new Set(dlqOrders.map((o) => o.errorCode));
     return Array.from(codes).map((code) => ({ value: code, label: code }));
-  }, []);
+  }, [dlqOrders]);
 
   const handleAction = async () => {
     if (!selectedDLQ || !actionType) return;
@@ -172,6 +189,14 @@ export default function DLQ() {
     setFilters({});
     setPage(1);
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

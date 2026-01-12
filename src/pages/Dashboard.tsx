@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   FileText, 
@@ -7,23 +7,55 @@ import {
   Clock, 
   TrendingUp,
   ArrowRight,
-  Activity
+  Activity,
+  Loader2
 } from 'lucide-react';
 import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, DLQStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { getDashboardKPIs, mockOrders, mockDLQOrders } from '@/lib/mockData';
+import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
+import type { OrderIntake, DLQOrder, DashboardKPIs } from '@/types';
 
 export default function Dashboard() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   
-  const kpis = useMemo(() => getDashboardKPIs(), []);
-  const recentOrders = mockOrders.slice(0, 5);
-  const pendingDLQ = mockDLQOrders.filter((o) => !o.resolved).slice(0, 5);
+  const [kpis, setKpis] = useState<DashboardKPIs>({ ordersToday: 0, ordersWeek: 0, errorRate: 0, pendingDLQ: 0, avgProcessingTime: 0, successRate: 100 });
+  const [recentOrders, setRecentOrders] = useState<OrderIntake[]>([]);
+  const [pendingDLQ, setPendingDLQ] = useState<DLQOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [kpisData, ordersData, dlqData] = await Promise.all([
+          fetchDashboardKPIs(),
+          fetchOrders(),
+          fetchDLQOrders(),
+        ]);
+        setKpis(kpisData);
+        setRecentOrders(ordersData.slice(0, 5));
+        setPendingDLQ(dlqData.filter((o) => !o.resolved).slice(0, 5));
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

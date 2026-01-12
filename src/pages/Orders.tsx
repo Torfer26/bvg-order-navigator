@@ -1,11 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
-import { mockOrders, mockClients } from '@/lib/mockData';
+import { fetchOrders, fetchClients } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { OrderIntake, OrderFilters } from '@/types';
+import type { OrderIntake, OrderFilters, Client } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 
@@ -18,9 +19,31 @@ export default function Orders() {
   
   const [filters, setFilters] = useState<OrderFilters>({});
   const [page, setPage] = useState(1);
+  const [orders, setOrders] = useState<OrderIntake[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [ordersData, clientsData] = await Promise.all([
+          fetchOrders(),
+          fetchClients(),
+        ]);
+        setOrders(ordersData);
+        setClients(clientsData);
+      } catch (error) {
+        console.error('Error loading orders:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
 
   const filteredOrders = useMemo(() => {
-    return mockOrders.filter((order) => {
+    return orders.filter((order) => {
       if (filters.clientId && order.clientId !== filters.clientId) return false;
       if (filters.status && order.status !== filters.status) return false;
       if (filters.search) {
@@ -106,6 +129,14 @@ export default function Orders() {
     setPage(1);
   };
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="page-header">
@@ -120,7 +151,7 @@ export default function Orders() {
             key: 'clientId',
             type: 'select',
             label: t.common.client,
-            options: mockClients.map((c) => ({ value: c.id, label: c.name })),
+            options: clients.map((c) => ({ value: c.id, label: c.name })),
           },
           {
             key: 'status',
