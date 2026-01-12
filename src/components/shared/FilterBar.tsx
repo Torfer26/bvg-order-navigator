@@ -12,8 +12,9 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 interface FilterOption {
   value: string;
@@ -36,7 +37,9 @@ interface FilterBarProps {
 }
 
 export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps) {
+  const { t, language } = useLanguage();
   const hasActiveFilters = Object.values(values).some((v) => v !== undefined && v !== '');
+  const dateLocale = language === 'es' ? es : it;
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-4">
@@ -46,7 +49,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
             <div key={filter.key} className="relative flex-1 min-w-[200px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder={filter.placeholder || 'Cerca...'}
+                placeholder={filter.placeholder || `${t.common.search}...`}
                 value={values[filter.key] || ''}
                 onChange={(e) => onChange(filter.key, e.target.value || undefined)}
                 className="pl-9"
@@ -66,7 +69,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
                 <SelectValue placeholder={filter.label} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Tutti</SelectItem>
+                <SelectItem value="all">{t.common.all}</SelectItem>
                 {filter.options.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
@@ -90,7 +93,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
                   )}
                 >
                   <CalendarIcon className="mr-2 h-4 w-4" />
-                  {dateValue ? format(dateValue, 'dd/MM/yyyy', { locale: it }) : filter.label}
+                  {dateValue ? format(dateValue, 'dd/MM/yyyy', { locale: dateLocale }) : filter.label}
                 </Button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
@@ -98,6 +101,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
                   mode="single"
                   selected={dateValue}
                   onSelect={(date) => onChange(filter.key, date?.toISOString())}
+                  locale={dateLocale}
                   initialFocus
                 />
               </PopoverContent>
@@ -111,7 +115,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" onClick={onClear} className="gap-1.5">
           <X className="h-4 w-4" />
-          Pulisci filtri
+          {t.common.clearFilters}
         </Button>
       )}
     </div>

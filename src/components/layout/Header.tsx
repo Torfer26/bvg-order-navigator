@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogOut, User, Bell } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -12,15 +13,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-
-const roleLabels: Record<string, string> = {
-  admin: 'Amministratore',
-  ops: 'Operatore',
-  read: 'Visualizzatore',
-};
+import { LanguageSwitcher } from '@/components/shared/LanguageSwitcher';
 
 export function Header() {
   const { user, logout } = useAuth();
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -28,15 +25,20 @@ export function Header() {
     navigate('/login');
   };
 
+  const roleLabels = t.roles;
+
   return (
     <header className="flex h-header items-center justify-between border-b border-border bg-card px-6">
       <div className="flex items-center gap-4">
-        <h1 className="text-lg font-medium text-foreground">Brivio & Viganò Operations Console</h1>
+        <h1 className="text-lg font-medium text-foreground">{t.header.consoleTitle}</h1>
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Language Switcher */}
+        <LanguageSwitcher />
+
         {/* Notifications placeholder */}
-        <Button variant="ghost" size="icon" className="relative">
+        <Button variant="ghost" size="icon" className="relative" title={t.header.notifications}>
           <Bell className="h-5 w-5" />
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive" />
         </Button>
@@ -66,7 +68,7 @@ export function Header() {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
-              Esci
+              {t.auth.logout}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

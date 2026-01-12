@@ -4,9 +4,10 @@ import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { mockLocationAliases, mockClients } from '@/lib/mockData';
+import { useLanguage } from '@/contexts/LanguageContext';
 import type { LocationAlias } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { Plus, Pencil, Trash2, ArrowRight } from 'lucide-react';
 import {
   Dialog,
@@ -29,6 +30,9 @@ import {
 import { toast } from 'sonner';
 
 export default function LocationAliases() {
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [filters, setFilters] = useState<{ search?: string; clientId?: string }>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAlias, setEditingAlias] = useState<LocationAlias | null>(null);
@@ -77,19 +81,19 @@ export default function LocationAliases() {
   };
 
   const handleSave = () => {
-    toast.success(editingAlias ? 'Alias aggiornato' : 'Alias creato');
+    toast.success(editingAlias ? t.aliases.aliasUpdated : t.aliases.aliasCreated);
     setIsDialogOpen(false);
   };
 
   const columns: Column<LocationAlias>[] = [
     {
       key: 'alias',
-      header: 'Alias',
+      header: t.aliases.alias,
       cell: (row) => <span className="font-mono font-medium">{row.alias}</span>,
     },
     {
       key: 'mapping',
-      header: 'Mappatura',
+      header: t.aliases.mapping,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">{row.alias}</span>
@@ -98,25 +102,25 @@ export default function LocationAliases() {
         </div>
       ),
     },
-    { key: 'client', header: 'Cliente', cell: (row) => getClientName(row.clientId) },
+    { key: 'client', header: t.common.client, cell: (row) => getClientName(row.clientId) },
     {
       key: 'active',
-      header: 'Stato',
+      header: t.common.status,
       cell: (row) =>
         row.active ? (
-          <StatusBadge status="success" label="Attivo" />
+          <StatusBadge status="success" label={t.common.active} />
         ) : (
-          <StatusBadge status="neutral" label="Inattivo" />
+          <StatusBadge status="neutral" label={t.common.inactive} />
         ),
     },
     {
       key: 'updatedAt',
-      header: 'Aggiornato',
-      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: it }),
+      header: t.common.updated,
+      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: dateLocale }),
     },
     {
       key: 'actions',
-      header: 'Azioni',
+      header: t.common.actions,
       cell: (row) => (
         <div className="flex gap-2">
           <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
@@ -134,22 +138,22 @@ export default function LocationAliases() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="page-header mb-0">
-          <h1 className="page-title">Alias Località</h1>
-          <p className="page-description">Gestisci le mappature degli alias delle località</p>
+          <h1 className="page-title">{t.aliases.title}</h1>
+          <p className="page-description">{t.aliases.subtitle}</p>
         </div>
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" />
-          Nuovo Alias
+          {t.aliases.newAlias}
         </Button>
       </div>
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: 'Cerca', placeholder: 'Cerca per alias o località...' },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: t.aliases.searchPlaceholder },
           {
             key: 'clientId',
             type: 'select',
-            label: 'Cliente',
+            label: t.common.client,
             options: mockClients.map((c) => ({ value: c.id, label: c.name })),
           },
         ]}
@@ -162,26 +166,26 @@ export default function LocationAliases() {
         columns={columns}
         data={filteredAliases}
         keyExtractor={(row) => row.id}
-        emptyMessage="Nessun alias trovato"
+        emptyMessage={t.aliases.noAliasesFound}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingAlias ? 'Modifica Alias' : 'Nuovo Alias'}</DialogTitle>
+            <DialogTitle>{editingAlias ? t.aliases.editAlias : t.aliases.newAlias}</DialogTitle>
             <DialogDescription>
-              {editingAlias ? 'Modifica la mappatura dell\'alias' : 'Crea una nuova mappatura alias'}
+              {editingAlias ? t.aliases.editAlias : t.aliases.newAlias}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Cliente</Label>
+              <Label>{t.common.client}</Label>
               <Select
                 value={formData.clientId}
                 onValueChange={(v) => setFormData({ ...formData, clientId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleziona cliente" />
+                  <SelectValue placeholder={t.remitentes.selectClient} />
                 </SelectTrigger>
                 <SelectContent>
                   {mockClients.map((c) => (
@@ -193,25 +197,25 @@ export default function LocationAliases() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="alias">Alias (come arriva dal cliente)</Label>
+              <Label htmlFor="alias">{t.aliases.alias}</Label>
               <Input
                 id="alias"
                 value={formData.alias}
                 onChange={(e) => setFormData({ ...formData, alias: e.target.value })}
-                placeholder="es. METRO MILANO"
+                placeholder={t.aliases.aliasHint}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="normalized">Località Normalizzata</Label>
+              <Label htmlFor="normalized">{t.aliases.normalizedLocation}</Label>
               <Input
                 id="normalized"
                 value={formData.normalizedLocation}
                 onChange={(e) => setFormData({ ...formData, normalizedLocation: e.target.value })}
-                placeholder="es. Milano - Magazzino Centrale"
+                placeholder="ej. Madrid - Almacén Central"
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label>Attivo</Label>
+              <Label>{t.common.active}</Label>
               <Switch
                 checked={formData.active}
                 onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
@@ -220,9 +224,9 @@ export default function LocationAliases() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Annulla
+              {t.common.cancel}
             </Button>
-            <Button onClick={handleSave}>Salva</Button>
+            <Button onClick={handleSave}>{t.common.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

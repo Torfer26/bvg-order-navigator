@@ -4,9 +4,10 @@ import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { mockRemitentes, mockClients } from '@/lib/mockData';
+import { useLanguage } from '@/contexts/LanguageContext';
 import type { Remitente } from '@/types';
 import { format } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { es, it } from 'date-fns/locale';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import {
   Dialog,
@@ -29,6 +30,9 @@ import {
 import { toast } from 'sonner';
 
 export default function Remitentes() {
+  const { t, language } = useLanguage();
+  const dateLocale = language === 'es' ? es : it;
+  
   const [filters, setFilters] = useState<{ search?: string; clientId?: string }>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingRemitente, setEditingRemitente] = useState<Remitente | null>(null);
@@ -67,32 +71,32 @@ export default function Remitentes() {
   };
 
   const handleSave = () => {
-    toast.success(editingRemitente ? 'Remitente aggiornato' : 'Remitente creato');
+    toast.success(editingRemitente ? t.remitentes.remitenteUpdated : t.remitentes.remitenteCreated);
     setIsDialogOpen(false);
   };
 
   const columns: Column<Remitente>[] = [
-    { key: 'email', header: 'Email', cell: (row) => <span className="font-medium">{row.email}</span> },
-    { key: 'name', header: 'Nome', cell: (row) => row.name },
-    { key: 'client', header: 'Cliente', cell: (row) => getClientName(row.clientId) },
+    { key: 'email', header: t.common.email, cell: (row) => <span className="font-medium">{row.email}</span> },
+    { key: 'name', header: t.common.name, cell: (row) => row.name },
+    { key: 'client', header: t.common.client, cell: (row) => getClientName(row.clientId) },
     {
       key: 'active',
-      header: 'Stato',
+      header: t.common.status,
       cell: (row) =>
         row.active ? (
-          <StatusBadge status="success" label="Attivo" />
+          <StatusBadge status="success" label={t.common.active} />
         ) : (
-          <StatusBadge status="neutral" label="Inattivo" />
+          <StatusBadge status="neutral" label={t.common.inactive} />
         ),
     },
     {
       key: 'createdAt',
-      header: 'Creato',
-      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: it }),
+      header: t.common.created,
+      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }),
     },
     {
       key: 'actions',
-      header: 'Azioni',
+      header: t.common.actions,
       cell: (row) => (
         <div className="flex gap-2">
           <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
@@ -110,22 +114,22 @@ export default function Remitentes() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="page-header mb-0">
-          <h1 className="page-title">Remitentes</h1>
-          <p className="page-description">Gestisci gli indirizzi email mittenti autorizzati</p>
+          <h1 className="page-title">{t.remitentes.title}</h1>
+          <p className="page-description">{t.remitentes.subtitle}</p>
         </div>
         <Button onClick={openNew}>
           <Plus className="mr-2 h-4 w-4" />
-          Nuovo Remitente
+          {t.remitentes.newRemitente}
         </Button>
       </div>
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: 'Cerca', placeholder: 'Cerca per email, nome...' },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: t.remitentes.searchPlaceholder },
           {
             key: 'clientId',
             type: 'select',
-            label: 'Cliente',
+            label: t.common.client,
             options: mockClients.map((c) => ({ value: c.id, label: c.name })),
           },
         ]}
@@ -138,26 +142,26 @@ export default function Remitentes() {
         columns={columns}
         data={filteredRemitentes}
         keyExtractor={(row) => row.id}
-        emptyMessage="Nessun remitente trovato"
+        emptyMessage={t.remitentes.noRemitentesFound}
       />
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRemitente ? 'Modifica Remitente' : 'Nuovo Remitente'}</DialogTitle>
+            <DialogTitle>{editingRemitente ? t.remitentes.editRemitente : t.remitentes.newRemitente}</DialogTitle>
             <DialogDescription>
-              {editingRemitente ? 'Modifica i dati del remitente' : 'Inserisci i dati del nuovo remitente'}
+              {editingRemitente ? t.remitentes.editRemitente : t.remitentes.newRemitente}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Cliente</Label>
+              <Label>{t.common.client}</Label>
               <Select
                 value={formData.clientId}
                 onValueChange={(v) => setFormData({ ...formData, clientId: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Seleziona cliente" />
+                  <SelectValue placeholder={t.remitentes.selectClient} />
                 </SelectTrigger>
                 <SelectContent>
                   {mockClients.map((c) => (
@@ -169,26 +173,26 @@ export default function Remitentes() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">{t.common.email}</Label>
               <Input
                 id="email"
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                placeholder="ordini@esempio.it"
+                placeholder="pedidos@ejemplo.com"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Nome</Label>
+              <Label htmlFor="name">{t.common.name}</Label>
               <Input
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="es. Ufficio Ordini"
+                placeholder={t.remitentes.office}
               />
             </div>
             <div className="flex items-center justify-between">
-              <Label>Attivo</Label>
+              <Label>{t.common.active}</Label>
               <Switch
                 checked={formData.active}
                 onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
@@ -197,9 +201,9 @@ export default function Remitentes() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Annulla
+              {t.common.cancel}
             </Button>
-            <Button onClick={handleSave}>Salva</Button>
+            <Button onClick={handleSave}>{t.common.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
