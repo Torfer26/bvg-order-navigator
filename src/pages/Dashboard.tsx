@@ -8,12 +8,16 @@ import {
   TrendingUp,
   ArrowRight,
   Activity,
-  Loader2
+  Loader2,
+  Mail,
+  Zap,
+  GitBranch,
+  BarChart3
 } from 'lucide-react';
 import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, DLQStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders } from '@/lib/ordersService';
+import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders, getAutomationStats, fetchEmailStats } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
@@ -27,21 +31,24 @@ export default function Dashboard() {
   const [allOrders, setAllOrders] = useState<OrderIntake[]>([]);
   const [recentOrders, setRecentOrders] = useState<OrderIntake[]>([]);
   const [pendingDLQ, setPendingDLQ] = useState<DLQOrder[]>([]);
+  const [automationStats, setAutomationStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadData() {
       setLoading(true);
       try {
-        const [kpisData, ordersData, dlqData] = await Promise.all([
+        const [kpisData, ordersData, dlqData, autoStats] = await Promise.all([
           fetchDashboardKPIs(),
           fetchOrders(),
           fetchDLQOrders(),
+          getAutomationStats(),
         ]);
         setKpis(kpisData);
         setAllOrders(ordersData);
         setRecentOrders(ordersData.slice(0, 5));
         setPendingDLQ(dlqData.filter((o) => !o.resolved).slice(0, 5));
+        setAutomationStats(autoStats);
       } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
@@ -96,6 +103,76 @@ export default function Dashboard() {
           iconClassName={kpis.pendingDLQ > 0 ? 'bg-destructive/10' : 'bg-success/10'}
         />
       </div>
+
+      {/* Automation Monitoring Section */}
+      {automationStats && (
+        <div className="section-card">
+          <div className="section-header">
+            <h2 className="section-title flex items-center gap-2">
+              <Zap className="h-5 w-5 text-warning" />
+              Monitorización de Automatización
+            </h2>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 p-5">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Mail className="h-4 w-4" />
+                Emails Procesados
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold">{automationStats.emailsProcessedToday}</span>
+                <span className="text-sm text-muted-foreground">hoy</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {automationStats.orderEmailsToday} pedidos, {automationStats.nonOrderEmailsToday} otros
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <GitBranch className="h-4 w-4" />
+                Pasos de Automatización
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold">{automationStats.automationStepsToday}</span>
+                <span className="text-sm text-muted-foreground">pasos</span>
+              </div>
+              <div className="text-xs text-success">
+                {automationStats.successfulSteps} exitosos
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <BarChart3 className="h-4 w-4" />
+                Tasa de Éxito
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold">
+                  {automationStats.automationSuccessRate.toFixed(1)}%
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {automationStats.errorSteps} errores, {automationStats.warnSteps} advertencias
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Activity className="h-4 w-4" />
+                Eventos del Sistema
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-semibold">{automationStats.eventsToday}</span>
+                <span className="text-sm text-muted-foreground">eventos</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Actividad del sistema
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Two column layout */}
       <div className="grid gap-6 lg:grid-cols-2">

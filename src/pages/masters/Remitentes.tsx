@@ -1,14 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { mockRemitentes, mockClients } from '@/lib/mockData';
+import { fetchRemitentes } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { Remitente } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -33,25 +33,43 @@ export default function Remitentes() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   
-  const [filters, setFilters] = useState<{ search?: string; clientId?: string }>({});
+  const [remitentes, setRemitentes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<{ search?: string; type?: string }>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingRemitente, setEditingRemitente] = useState<Remitente | null>(null);
   const [formData, setFormData] = useState({ clientId: '', email: '', name: '', active: true });
 
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const remitentesData = await fetchRemitentes();
+        setRemitentes(remitentesData);
+      } catch (error) {
+        console.error('Error loading remitentes:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
   const filteredRemitentes = useMemo(() => {
-    return mockRemitentes.filter((r) => {
-      if (filters.clientId && r.clientId !== filters.clientId) return false;
+    return remitentes.filter((r) => {
+      if (filters.type && r.type !== filters.type) return false;
       if (filters.search) {
         const s = filters.search.toLowerCase();
-        if (!r.email.toLowerCase().includes(s) && !r.name.toLowerCase().includes(s)) return false;
+        if (
+          !r.code?.toLowerCase().includes(s) && 
+          !r.name?.toLowerCase().includes(s) &&
+          !r.location?.toLowerCase().includes(s) &&
+          !r.address?.toLowerCase().includes(s)
+        ) return false;
       }
       return true;
     });
-  }, [filters]);
-
-  const getClientName = (clientId: string) => {
-    return mockClients.find((c) => c.id === clientId)?.name || '-';
-  };
+  }, [filters, remitentes]);
 
   const openNew = () => {
     setEditingRemitente(null);
@@ -75,40 +93,27 @@ export default function Remitentes() {
     setIsDialogOpen(false);
   };
 
-  const columns: Column<Remitente>[] = [
-    { key: 'email', header: t.common.email, cell: (row) => <span className="font-medium">{row.email}</span> },
-    { key: 'name', header: t.common.name, cell: (row) => row.name },
-    { key: 'client', header: t.common.client, cell: (row) => getClientName(row.clientId) },
-    {
-      key: 'active',
-      header: t.common.status,
-      cell: (row) =>
-        row.active ? (
-          <StatusBadge status="success" label={t.common.active} />
-        ) : (
-          <StatusBadge status="neutral" label={t.common.inactive} />
-        ),
-    },
+  const columns: Column<any>[] = [
+    { key: 'code', header: 'Código', cell: (row) => <span className="font-medium">{row.code}</span> },
+    { key: 'name', header: 'Nombre', cell: (row) => row.name },
+    { key: 'type', header: 'Tipo', cell: (row) => row.type || '-' },
+    { key: 'location', header: 'Localización', cell: (row) => `${row.location || ''} ${row.district ? `(${row.district})` : ''}`.trim() || '-' },
+    { key: 'address', header: 'Dirección', cell: (row) => row.address || '-' },
+    { key: 'country', header: 'País', cell: (row) => row.country || '-' },
     {
       key: 'createdAt',
-      header: t.common.created,
-      cell: (row) => format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }),
-    },
-    {
-      key: 'actions',
-      header: t.common.actions,
-      cell: (row) => (
-        <div className="flex gap-2">
-          <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
+      header: 'Importado',
+      cell: (row) => row.createdAt ? format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }) : '-',
     },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -125,13 +130,7 @@ export default function Remitentes() {
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: t.common.search, placeholder: t.remitentes.searchPlaceholder },
-          {
-            key: 'clientId',
-            type: 'select',
-            label: t.common.client,
-            options: mockClients.map((c) => ({ value: c.id, label: c.name })),
-          },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: 'Buscar por código, nombre, localización...' },
         ]}
         values={filters}
         onChange={(key, value) => setFilters((prev) => ({ ...prev, [key]: value }))}

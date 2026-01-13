@@ -18,6 +18,8 @@ import Clients from "@/pages/masters/Clients";
 import Remitentes from "@/pages/masters/Remitentes";
 import Holidays from "@/pages/masters/Holidays";
 import LocationAliases from "@/pages/masters/LocationAliases";
+import EmailMonitoring from "@/pages/EmailMonitoring";
+import LogsAndTraceability from "@/pages/LogsAndTraceability";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +41,8 @@ const App = () => (
                 <Route path="orders/:id" element={<OrderDetail />} />
                 <Route path="dlq" element={<DLQ />} />
                 <Route path="dlq/:id" element={<DLQ />} />
+                <Route path="monitoring/emails" element={<EmailMonitoring />} />
+                <Route path="monitoring/logs" element={<LogsAndTraceability />} />
                 <Route path="users" element={<Users />} />
                 <Route path="masters/clients" element={<Clients />} />
                 <Route path="masters/remitentes" element={<Remitentes />} />

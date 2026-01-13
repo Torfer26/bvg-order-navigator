@@ -1,14 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { mockClients } from '@/lib/mockData';
+import { fetchClients, fetchCustomerEmails } from '@/lib/ordersService';
 import { useLanguage, interpolate } from '@/contexts/LanguageContext';
 import type { Client } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -26,21 +26,40 @@ export default function Clients() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   
+  const [clients, setClients] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ code: '', name: '', email: '', active: true });
 
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const clientsData = await fetchClients();
+        setClients(clientsData);
+      } catch (error) {
+        console.error('Error loading clients:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
   const filteredClients = useMemo(() => {
-    if (!search) return mockClients;
+    if (!search) return clients;
     const s = search.toLowerCase();
-    return mockClients.filter(
+    return clients.filter(
       (c) =>
-        c.code.toLowerCase().includes(s) ||
-        c.name.toLowerCase().includes(s) ||
-        c.email?.toLowerCase().includes(s)
+        c.code?.toLowerCase().includes(s) ||
+        c.name?.toLowerCase().includes(s) ||
+        c.email?.toLowerCase().includes(s) ||
+        c.location?.toLowerCase().includes(s) ||
+        c.companyCode?.toLowerCase().includes(s)
     );
-  }, [search]);
+  }, [search, clients]);
 
   const openNew = () => {
     setEditingClient(null);
@@ -123,6 +142,14 @@ export default function Clients() {
       ),
     },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

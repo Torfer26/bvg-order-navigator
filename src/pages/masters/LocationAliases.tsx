@@ -1,14 +1,14 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { mockLocationAliases, mockClients } from '@/lib/mockData';
+import { fetchLocationAliases } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { LocationAlias } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
-import { Plus, Pencil, Trash2, ArrowRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, ArrowRight, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -33,7 +33,9 @@ export default function LocationAliases() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   
-  const [filters, setFilters] = useState<{ search?: string; clientId?: string }>({});
+  const [aliases, setAliases] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filters, setFilters] = useState<{ search?: string; status?: string }>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingAlias, setEditingAlias] = useState<LocationAlias | null>(null);
   const [formData, setFormData] = useState({
@@ -43,25 +45,36 @@ export default function LocationAliases() {
     active: true,
   });
 
+  useEffect(() => {
+    async function loadData() {
+      setLoading(true);
+      try {
+        const aliasesData = await fetchLocationAliases();
+        setAliases(aliasesData);
+      } catch (error) {
+        console.error('Error loading location aliases:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadData();
+  }, []);
+
   const filteredAliases = useMemo(() => {
-    return mockLocationAliases.filter((a) => {
-      if (filters.clientId && a.clientId !== filters.clientId) return false;
+    return aliases.filter((a) => {
+      if (filters.status && a.status !== filters.status) return false;
       if (filters.search) {
         const s = filters.search.toLowerCase();
         if (
-          !a.alias.toLowerCase().includes(s) &&
-          !a.normalizedLocation.toLowerCase().includes(s)
+          !a.aliasNorm?.toLowerCase().includes(s) &&
+          !String(a.locationId)?.toLowerCase().includes(s)
         ) {
           return false;
         }
       }
       return true;
     });
-  }, [filters]);
-
-  const getClientName = (clientId: string) => {
-    return mockClients.find((c) => c.id === clientId)?.name || '-';
-  };
+  }, [filters, aliases]);
 
   const openNew = () => {
     setEditingAlias(null);
@@ -85,54 +98,66 @@ export default function LocationAliases() {
     setIsDialogOpen(false);
   };
 
-  const columns: Column<LocationAlias>[] = [
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'APPROVED': return 'success';
+      case 'PENDING': return 'warning';
+      case 'REJECTED': return 'error';
+      default: return 'neutral';
+    }
+  };
+
+  const columns: Column<any>[] = [
     {
-      key: 'alias',
-      header: t.aliases.alias,
-      cell: (row) => <span className="font-mono font-medium">{row.alias}</span>,
+      key: 'aliasNorm',
+      header: 'Alias Normalizado',
+      cell: (row) => <span className="font-mono font-medium">{row.aliasNorm}</span>,
     },
     {
       key: 'mapping',
-      header: t.aliases.mapping,
+      header: 'Mapeo',
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">{row.alias}</span>
+          <span className="text-muted-foreground">{row.aliasNorm}</span>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">{row.normalizedLocation}</span>
+          <span className="font-medium">Location ID: {row.locationId}</span>
         </div>
       ),
     },
-    { key: 'client', header: t.common.client, cell: (row) => getClientName(row.clientId) },
     {
-      key: 'active',
-      header: t.common.status,
-      cell: (row) =>
-        row.active ? (
-          <StatusBadge status="success" label={t.common.active} />
-        ) : (
-          <StatusBadge status="neutral" label={t.common.inactive} />
-        ),
+      key: 'status',
+      header: 'Estado',
+      cell: (row) => <StatusBadge status={getStatusColor(row.status)} label={row.status} />,
     },
     {
-      key: 'updatedAt',
-      header: t.common.updated,
-      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: dateLocale }),
+      key: 'source',
+      header: 'Origen',
+      cell: (row) => <span className="text-sm">{row.source}</span>,
     },
     {
-      key: 'actions',
-      header: t.common.actions,
-      cell: (row) => (
-        <div className="flex gap-2">
-          <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
+      key: 'confidence',
+      header: 'Confianza',
+      cell: (row) => <span className="text-sm">{(row.confidence * 100).toFixed(0)}%</span>,
+    },
+    {
+      key: 'hits',
+      header: 'Usos',
+      cell: (row) => <span className="text-sm font-medium">{row.hits}</span>,
+    },
+    {
+      key: 'lastUsed',
+      header: 'Último Uso',
+      cell: (row) => row.lastUsed ? format(new Date(row.lastUsed), 'dd/MM/yyyy', { locale: dateLocale }) : '-',
     },
   ];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -149,12 +174,16 @@ export default function LocationAliases() {
 
       <FilterBar
         filters={[
-          { key: 'search', type: 'search', label: t.common.search, placeholder: t.aliases.searchPlaceholder },
+          { key: 'search', type: 'search', label: t.common.search, placeholder: 'Buscar por alias o location ID...' },
           {
-            key: 'clientId',
+            key: 'status',
             type: 'select',
-            label: t.common.client,
-            options: mockClients.map((c) => ({ value: c.id, label: c.name })),
+            label: 'Estado',
+            options: [
+              { value: 'APPROVED', label: 'Aprobado' },
+              { value: 'PENDING', label: 'Pendiente' },
+              { value: 'REJECTED', label: 'Rechazado' },
+            ],
           },
         ]}
         values={filters}

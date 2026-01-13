@@ -9,7 +9,10 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Package
+  Package,
+  Mail,
+  GitBranch,
+  Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -23,19 +26,22 @@ interface SidebarProps {
 interface NavItem {
   to: string;
   icon: React.ElementType;
-  labelKey: 'dashboard' | 'orders' | 'dlq' | 'clients' | 'remitentes' | 'holidays' | 'locationAliases' | 'users';
+  label: string;
   roles?: ('admin' | 'ops' | 'read')[];
+  section?: string;
 }
 
 const navItems: NavItem[] = [
-  { to: '/dashboard', icon: LayoutDashboard, labelKey: 'dashboard' },
-  { to: '/orders', icon: FileText, labelKey: 'orders' },
-  { to: '/dlq', icon: AlertTriangle, labelKey: 'dlq' },
-  { to: '/masters/clients', icon: Building2, labelKey: 'clients', roles: ['admin'] },
-  { to: '/masters/remitentes', icon: Package, labelKey: 'remitentes', roles: ['admin'] },
-  { to: '/masters/holidays', icon: Settings, labelKey: 'holidays', roles: ['admin'] },
-  { to: '/masters/aliases', icon: Settings, labelKey: 'locationAliases', roles: ['admin'] },
-  { to: '/users', icon: Users, labelKey: 'users', roles: ['admin'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/orders', icon: FileText, label: 'Pedidos' },
+  { to: '/dlq', icon: AlertTriangle, label: 'DLQ' },
+  { to: '/monitoring/emails', icon: Mail, label: 'Emails', section: 'monitoring' },
+  { to: '/monitoring/logs', icon: GitBranch, label: 'Logs & Trazabilidad', section: 'monitoring' },
+  { to: '/masters/clients', icon: Building2, label: 'Clientes', roles: ['admin'], section: 'masters' },
+  { to: '/masters/remitentes', icon: Package, label: 'Remitentes', roles: ['admin'], section: 'masters' },
+  { to: '/masters/holidays', icon: Settings, label: 'Festivos', roles: ['admin'], section: 'masters' },
+  { to: '/masters/aliases', icon: Settings, label: 'Alias Localizaciones', roles: ['admin'], section: 'masters' },
+  { to: '/users', icon: Users, label: 'Usuarios', roles: ['admin'] },
 ];
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
@@ -74,27 +80,79 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {filteredItems.map((item) => {
-          const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
-          const Icon = item.icon;
-          const label = t.nav[item.labelKey];
-          
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={cn(
-                'nav-item',
-                isActive ? 'nav-item-active' : 'nav-item-inactive',
-                collapsed && 'justify-center px-2'
-              )}
-              title={collapsed ? label : undefined}
-            >
-              <Icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{label}</span>}
-            </NavLink>
-          );
-        })}
+        {/* Main Navigation */}
+        <div className="space-y-1">
+          {filteredItems.filter((item) => !item.section).map((item) => {
+            const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+            const Icon = item.icon;
+            
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  'nav-item',
+                  isActive ? 'nav-item-active' : 'nav-item-inactive',
+                  collapsed && 'justify-center px-2'
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
+              </NavLink>
+            );
+          })}
+        </div>
+        
+        {/* Monitoring Section */}
+        {!collapsed && <div className="mt-6 mb-2 px-3 text-xs font-semibold text-muted-foreground">MONITORIZACIÓN</div>}
+        <div className="space-y-1">
+          {filteredItems.filter((item) => item.section === 'monitoring').map((item) => {
+            const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+            const Icon = item.icon;
+            
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  'nav-item',
+                  isActive ? 'nav-item-active' : 'nav-item-inactive',
+                  collapsed && 'justify-center px-2'
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
+              </NavLink>
+            );
+          })}
+        </div>
+        
+        {/* Masters Section */}
+        {!collapsed && <div className="mt-6 mb-2 px-3 text-xs font-semibold text-muted-foreground">MAESTROS</div>}
+        <div className="space-y-1">
+          {filteredItems.filter((item) => item.section === 'masters').map((item) => {
+            const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+            const Icon = item.icon;
+            
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  'nav-item',
+                  isActive ? 'nav-item-active' : 'nav-item-inactive',
+                  collapsed && 'justify-center px-2'
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
+              </NavLink>
+            );
+          })}
+        </div>
       </nav>
 
       {/* Collapse Toggle */}
