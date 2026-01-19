@@ -91,55 +91,46 @@ export default function Clients() {
     toast.success(interpolate(t.clients.clientDeleted, { name: client.name }));
   };
 
-  const columns: Column<Client>[] = [
+  const columns: Column<any>[] = [
     {
       key: 'code',
-      header: t.common.code,
+      header: t.common.code || 'Código',
       cell: (row) => <span className="font-mono font-medium">{row.code}</span>,
     },
     {
       key: 'name',
-      header: t.common.name,
+      header: t.common.name || 'Nombre',
       cell: (row) => row.name,
     },
     {
-      key: 'email',
-      header: t.common.email,
-      cell: (row) => row.email || '-',
+      key: 'companyCode',
+      header: 'Código Empresa',
+      cell: (row) => row.companyCode || '-',
+    },
+    {
+      key: 'location',
+      header: 'Localización',
+      cell: (row) => {
+        const parts = [];
+        if (row.location) parts.push(row.location);
+        if (row.country) parts.push(row.country);
+        return parts.join(', ') || '-';
+      },
     },
     {
       key: 'active',
-      header: t.common.status,
+      header: t.common.status || 'Estado',
       cell: (row) =>
         row.active ? (
-          <StatusBadge status="success" label={t.common.active} />
+          <StatusBadge status="success" label={t.common.active || 'Activo'} />
         ) : (
-          <StatusBadge status="neutral" label={t.common.inactive} />
+          <StatusBadge status="neutral" label={t.common.inactive || 'Inactivo'} />
         ),
     },
     {
-      key: 'updatedAt',
-      header: t.clients.lastUpdate,
-      cell: (row) => format(new Date(row.updatedAt), 'dd/MM/yyyy', { locale: dateLocale }),
-    },
-    {
-      key: 'actions',
-      header: t.common.actions,
-      cell: (row) => (
-        <div className="flex gap-2">
-          <Button variant="ghost" size="icon" onClick={() => openEdit(row)}>
-            <Pencil className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-destructive hover:text-destructive"
-            onClick={() => handleDelete(row)}
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      ),
+      key: 'createdAt',
+      header: 'Importado',
+      cell: (row) => row.createdAt ? format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }) : '-',
     },
   ];
 

@@ -155,21 +155,9 @@ export default function Remitentes() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label>{t.common.client}</Label>
-              <Select
-                value={formData.clientId}
-                onValueChange={(v) => setFormData({ ...formData, clientId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t.remitentes.selectClient} />
-                </SelectTrigger>
-                <SelectContent>
-                  {mockClients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <p className="text-sm text-muted-foreground">
+                Los remitentes se cargan desde customer_location_stg. No editable desde aquí.
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">{t.common.email}</Label>

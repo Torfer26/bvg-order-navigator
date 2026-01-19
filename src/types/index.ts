@@ -14,6 +14,19 @@ export interface AuthState {
   isLoading: boolean;
 }
 
+// Order Status Types (matching bvg.order_intake_status ENUM)
+export type OrderIntakeStatus = 
+  | 'RECEIVED'       // Recibido, aún no procesado
+  | 'PARSING'        // En análisis por IA
+  | 'VALIDATING'     // Validando datos
+  | 'AWAITING_INFO'  // Esperando respuesta del cliente
+  | 'IN_REVIEW'      // En revisión manual
+  | 'APPROVED'       // Aprobado, listo para integración
+  | 'PROCESSING'     // Integrando con sistemas externos
+  | 'COMPLETED'      // Integración completa
+  | 'REJECTED'       // Rechazado manualmente
+  | 'ERROR';         // Error en procesamiento
+
 // Orders Types
 export interface OrderIntake {
   id: string;
@@ -23,7 +36,7 @@ export interface OrderIntake {
   clientName: string;
   senderAddress: string;
   subject: string;
-  status: 'pending' | 'processing' | 'completed' | 'error';
+  status: OrderIntakeStatus;
   receivedAt: string;
   processedAt?: string;
   linesCount: number;

@@ -69,7 +69,7 @@ export default function Orders() {
       }
       return true;
     });
-  }, [filters]);
+  }, [orders, filters]);
 
   const paginatedOrders = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;

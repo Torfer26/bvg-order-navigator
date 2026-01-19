@@ -122,12 +122,18 @@ export interface Translations {
     notes: string;
   };
   
-  // Order statuses
+  // Order statuses (matching bvg.order_intake_status ENUM)
   orderStatus: {
-    pending: string;
-    processing: string;
-    completed: string;
-    error: string;
+    RECEIVED: string;
+    PARSING: string;
+    VALIDATING: string;
+    AWAITING_INFO: string;
+    IN_REVIEW: string;
+    APPROVED: string;
+    PROCESSING: string;
+    COMPLETED: string;
+    REJECTED: string;
+    ERROR: string;
   };
   
   // Order events
@@ -368,10 +374,16 @@ export const translations: Record<Language, Translations> = {
       notes: 'Notas',
     },
     orderStatus: {
-      pending: 'Pendiente',
-      processing: 'En proceso',
-      completed: 'Completado',
-      error: 'Error',
+      RECEIVED: 'Recibido',
+      PARSING: 'Analizando',
+      VALIDATING: 'Validando',
+      AWAITING_INFO: 'Esperando info',
+      IN_REVIEW: 'En revisión',
+      APPROVED: 'Aprobado',
+      PROCESSING: 'Procesando',
+      COMPLETED: 'Completado',
+      REJECTED: 'Rechazado',
+      ERROR: 'Error',
     },
     orderEvents: {
       received: 'Email recibido',
@@ -592,10 +604,16 @@ export const translations: Record<Language, Translations> = {
       notes: 'Note',
     },
     orderStatus: {
-      pending: 'In attesa',
-      processing: 'In elaborazione',
-      completed: 'Completato',
-      error: 'Errore',
+      RECEIVED: 'Ricevuto',
+      PARSING: 'Analizzando',
+      VALIDATING: 'Validando',
+      AWAITING_INFO: 'In attesa info',
+      IN_REVIEW: 'In revisione',
+      APPROVED: 'Approvato',
+      PROCESSING: 'In elaborazione',
+      COMPLETED: 'Completato',
+      REJECTED: 'Rifiutato',
+      ERROR: 'Errore',
     },
     orderEvents: {
       received: 'Email ricevuta',

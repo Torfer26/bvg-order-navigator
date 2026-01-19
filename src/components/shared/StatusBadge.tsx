@@ -1,9 +1,10 @@
 import React from 'react';
-import { CheckCircle2, Clock, AlertCircle, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, Loader2, XCircle, Eye, Sparkles, Send, Ban, Inbox } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
+import type { OrderIntakeStatus } from '@/types';
 
-type StatusType = 'success' | 'warning' | 'error' | 'info' | 'pending' | 'neutral';
+type StatusType = 'success' | 'warning' | 'error' | 'info' | 'pending' | 'neutral' | 'purple' | 'orange' | 'teal';
 
 interface StatusConfig {
   icon: React.ElementType;
@@ -17,6 +18,9 @@ const statusConfigs: Record<StatusType, StatusConfig> = {
   info: { icon: AlertCircle, className: 'status-badge-info' },
   pending: { icon: Loader2, className: 'status-badge-warning' },
   neutral: { icon: Clock, className: 'status-badge-neutral' },
+  purple: { icon: Eye, className: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' },
+  orange: { icon: Clock, className: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' },
+  teal: { icon: CheckCircle2, className: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-300' },
 };
 
 interface StatusBadgeProps {
@@ -40,23 +44,33 @@ export function StatusBadge({ status, label, showIcon = true, className }: Statu
   );
 }
 
-// Convenience mapping for order statuses
-export function OrderStatusBadge({ status }: { status: string }) {
+// Convenience mapping for order statuses (new ENUM-based)
+export function OrderStatusBadge({ status }: { status: OrderIntakeStatus | string }) {
   const { t } = useLanguage();
   
-  const statusMap: Record<string, { type: StatusType; labelKey: keyof typeof t.orderStatus }> = {
-    pending: { type: 'pending', labelKey: 'pending' },
-    processing: { type: 'info', labelKey: 'processing' },
-    completed: { type: 'success', labelKey: 'completed' },
-    error: { type: 'error', labelKey: 'error' },
+  // Map DB status to UI config
+  const statusMap: Record<OrderIntakeStatus, { type: StatusType; icon?: React.ElementType }> = {
+    RECEIVED: { type: 'info', icon: Inbox },
+    PARSING: { type: 'warning', icon: Sparkles },
+    VALIDATING: { type: 'warning', icon: Loader2 },
+    AWAITING_INFO: { type: 'orange', icon: Clock },
+    IN_REVIEW: { type: 'purple', icon: Eye },
+    APPROVED: { type: 'teal', icon: CheckCircle2 },
+    PROCESSING: { type: 'warning', icon: Send },
+    COMPLETED: { type: 'success', icon: CheckCircle2 },
+    REJECTED: { type: 'error', icon: Ban },
+    ERROR: { type: 'error', icon: XCircle },
   };
 
-  const config = statusMap[status];
+  const config = statusMap[status as OrderIntakeStatus];
   if (!config) {
     return <StatusBadge status="neutral" label={status} />;
   }
   
-  return <StatusBadge status={config.type} label={t.orderStatus[config.labelKey]} />;
+  // Get translated label, fallback to status code if not found
+  const label = t.orderStatus[status as keyof typeof t.orderStatus] || status;
+  
+  return <StatusBadge status={config.type} label={label} />;
 }
 
 // DLQ resolved status

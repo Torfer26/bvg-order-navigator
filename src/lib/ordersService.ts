@@ -9,16 +9,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 /**
  * Fetch orders from ordenes_intake table (bvg schema)
+ * Status now comes directly from the database column 'status'
  */
 export async function fetchOrders(): Promise<OrderIntake[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ordenes_intake?order=order_date.desc&limit=100`);
+    const response = await fetch(`${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200`);
+    
     if (!response.ok) throw new Error('Failed to fetch orders');
     
-    const data = await response.json();
+    const ordersData = await response.json();
     
     // Map database fields to frontend types
-    return data.map((row: any) => ({
+    return ordersData.map((row: any) => ({
       id: String(row.id),
       orderCode: row.order_code || `ORD-${row.id}`,
       messageId: row.message_id || '',
@@ -26,8 +28,8 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       clientName: `Cliente ${row.client_id}`,
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
-      status: mapIntakeSource(row.source),
-      receivedAt: row.order_date,
+      status: row.status, // Status comes directly from DB now
+      receivedAt: row.order_date || row.created_at,
       processedAt: row.updated_at,
       linesCount: 0, // Se calculará desde ordenes_intake_lineas si es necesario
     }));
@@ -131,18 +133,6 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
   }
 }
 
-/**
- * Map database intake_source to frontend status
- */
-function mapIntakeSource(source: string): OrderIntake['status'] {
-  const sourceMap: Record<string, OrderIntake['status']> = {
-    'EMAIL': 'completed',
-    'WHATSAPP': 'completed',
-    'CALL': 'processing',
-    'OTHER': 'pending',
-  };
-  return sourceMap[source] || 'pending';
-}
 
 /**
  * Fetch clients from customer_stg table
@@ -394,6 +384,26 @@ export async function fetchLocationAliases() {
   } catch (error) {
     console.error('Error fetching location aliases:', error);
     return [];
+  }
+}
+
+/**
+ * Fetch locations (staging) to resolve location names
+ */
+export async function fetchLocationsMap() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/customer_location_stg?select=id,description,code&limit=2000`);
+    if (!response.ok) throw new Error('Failed to fetch locations');
+    const data = await response.json();
+    const map: Record<string, { name: string; code?: string }> = {};
+    data.forEach((row: any) => {
+      const key = String(row.id);
+      map[key] = { name: row.description || row.code || key, code: row.code };
+    });
+    return map;
+  } catch (error) {
+    console.error('Error fetching locations map:', error);
+    return {};
   }
 }
 

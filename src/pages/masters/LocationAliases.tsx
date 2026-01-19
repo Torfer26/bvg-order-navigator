@@ -3,7 +3,7 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { fetchLocationAliases } from '@/lib/ordersService';
+import { fetchLocationAliases, fetchLocationsMap } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { LocationAlias } from '@/types';
 import { format } from 'date-fns';
@@ -19,14 +19,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { toast } from 'sonner';
 
 export default function LocationAliases() {
@@ -34,6 +26,7 @@ export default function LocationAliases() {
   const dateLocale = language === 'es' ? es : it;
   
   const [aliases, setAliases] = useState<any[]>([]);
+  const [locationMap, setLocationMap] = useState<Record<string, { name: string; code?: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<{ search?: string; status?: string }>({});
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -49,8 +42,12 @@ export default function LocationAliases() {
     async function loadData() {
       setLoading(true);
       try {
-        const aliasesData = await fetchLocationAliases();
+        const [aliasesData, locMap] = await Promise.all([
+          fetchLocationAliases(),
+          fetchLocationsMap(),
+        ]);
         setAliases(aliasesData);
+        setLocationMap(locMap);
       } catch (error) {
         console.error('Error loading location aliases:', error);
       } finally {
@@ -120,7 +117,10 @@ export default function LocationAliases() {
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">{row.aliasNorm}</span>
           <ArrowRight className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium">Location ID: {row.locationId}</span>
+          <span className="font-medium">
+            Location ID: {row.locationId}
+            {locationMap[row.locationId]?.name ? ` · ${locationMap[row.locationId].name}` : ''}
+          </span>
         </div>
       ),
     },
@@ -155,7 +155,7 @@ export default function LocationAliases() {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
+        </div>
     );
   }
 
@@ -201,61 +201,20 @@ export default function LocationAliases() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingAlias ? t.aliases.editAlias : t.aliases.newAlias}</DialogTitle>
+            <DialogTitle>{t.aliases.newAlias}</DialogTitle>
             <DialogDescription>
-              {editingAlias ? t.aliases.editAlias : t.aliases.newAlias}
+              La edición/creación de alias se gestiona fuera del frontend. Esta vista es solo de lectura.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>{t.common.client}</Label>
-              <Select
-                value={formData.clientId}
-                onValueChange={(v) => setFormData({ ...formData, clientId: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t.remitentes.selectClient} />
-                </SelectTrigger>
-                <SelectContent>
-                  {mockClients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="alias">{t.aliases.alias}</Label>
-              <Input
-                id="alias"
-                value={formData.alias}
-                onChange={(e) => setFormData({ ...formData, alias: e.target.value })}
-                placeholder={t.aliases.aliasHint}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="normalized">{t.aliases.normalizedLocation}</Label>
-              <Input
-                id="normalized"
-                value={formData.normalizedLocation}
-                onChange={(e) => setFormData({ ...formData, normalizedLocation: e.target.value })}
-                placeholder="ej. Madrid - Almacén Central"
-              />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label>{t.common.active}</Label>
-              <Switch
-                checked={formData.active}
-                onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
-              />
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Para crear o editar alias, usa el flujo de backoffice o n8n. Aquí solo se listan los alias existentes de la tabla location_aliases.
+            </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              {t.common.cancel}
+              {t.common.close}
             </Button>
-            <Button onClick={handleSave}>{t.common.save}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -64,17 +64,21 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Logo */}
       <div className="flex h-header items-center justify-between border-b border-sidebar-border px-4">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary">
-              <span className="text-sm font-bold text-sidebar-primary-foreground">BV</span>
-            </div>
+          <div className="flex items-center gap-3">
+            <img 
+              src="/Brivio-vigano-logo.png" 
+              alt="Brivio & Viganò" 
+              className="h-10 w-auto object-contain"
+            />
             <span className="text-base font-semibold text-sidebar-foreground">BVG Ops</span>
           </div>
         )}
         {collapsed && (
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sidebar-primary mx-auto">
-            <span className="text-sm font-bold text-sidebar-primary-foreground">BV</span>
-          </div>
+          <img 
+            src="/Brivio-vigano-logo.png" 
+            alt="BV" 
+            className="h-8 w-8 object-contain mx-auto"
+          />
         )}
       </div>
 
