@@ -9,29 +9,34 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 /**
  * Fetch orders from ordenes_intake table (bvg schema)
- * Status now comes directly from the database column 'status'
+ * Uses PostgREST JOIN to get real client names from customer_stg
  */
 export async function fetchOrders(): Promise<OrderIntake[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200`);
-    
+    // M03: Use PostgREST foreign table join to get client name
+    // Format: ?select=*,customer_stg!client_id(description)
+    const response = await fetch(
+      `${API_BASE_URL}/ordenes_intake?select=*,customer_stg!client_id(description)&order=created_at.desc&limit=200`
+    );
+
     if (!response.ok) throw new Error('Failed to fetch orders');
-    
+
     const ordersData = await response.json();
-    
+
     // Map database fields to frontend types
     return ordersData.map((row: any) => ({
       id: String(row.id),
       orderCode: row.order_code || `ORD-${row.id}`,
       messageId: row.message_id || '',
       clientId: String(row.client_id),
-      clientName: `Cliente ${row.client_id}`,
+      // M03: Use real client name from JOIN, fallback to template
+      clientName: row.customer_stg?.description || `Cliente ${row.client_id}`,
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
-      status: row.status, // Status comes directly from DB now
+      status: row.status,
       receivedAt: row.order_date || row.created_at,
       processedAt: row.updated_at,
-      linesCount: 0, // Se calculará desde ordenes_intake_lineas si es necesario
+      linesCount: 0, // TODO: Calculate from ordenes_intake_lineas
     }));
   } catch (error) {
     console.error('Error fetching orders:', error);
@@ -46,9 +51,9 @@ export async function fetchDLQOrders(): Promise<DLQOrder[]> {
   try {
     const response = await fetch(`${API_BASE_URL}/dlq_orders?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch DLQ orders');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       orderCode: row.intake_id ? `ORD-${row.intake_id}` : `DLQ-${row.id}`,
@@ -76,9 +81,9 @@ export async function fetchHolidays(): Promise<Holiday[]> {
   try {
     const response = await fetch(`${API_BASE_URL}/holidays?order=date.asc`);
     if (!response.ok) throw new Error('Failed to fetch holidays');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any, index: number) => ({
       id: `h-${index}`,
       date: row.date,
@@ -102,16 +107,16 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       fetchDLQOrders(),
       fetchEmailStats(),
     ]);
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
+
     const ordersToday = orders.filter((o) => new Date(o.receivedAt) >= today).length;
     const ordersWeek = orders.filter((o) => new Date(o.receivedAt) >= weekAgo).length;
     const emailsToday = emailStats.filter((e) => new Date(e.receivedAt) >= today).length;
     const pendingDLQ = dlqOrders.filter((o) => !o.resolved).length;
-    
+
     return {
       ordersToday,
       ordersWeek,
@@ -141,9 +146,9 @@ export async function fetchClients() {
   try {
     const response = await fetch(`${API_BASE_URL}/customer_stg?order=description.asc`);
     if (!response.ok) throw new Error('Failed to fetch clients');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: row.id,
       code: row.id,
@@ -171,9 +176,9 @@ export async function fetchCustomerEmails() {
   try {
     const response = await fetch(`${API_BASE_URL}/customer_emails?order=customer_id.asc`);
     if (!response.ok) throw new Error('Failed to fetch customer emails');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       customerId: row.customer_id,
@@ -197,9 +202,9 @@ export async function fetchEmailStats() {
   try {
     const response = await fetch(`${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch email stats');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       receivedAt: row.received_at,
@@ -229,12 +234,12 @@ export async function fetchOrdersLog(messageId?: string) {
     if (messageId) {
       url = `${API_BASE_URL}/orders_log?message_id=eq.${messageId}&order=created_at.asc`;
     }
-    
+
     const response = await fetch(url);
     if (!response.ok) throw new Error('Failed to fetch orders log');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       messageId: row.message_id,
@@ -257,9 +262,9 @@ export async function fetchOrderEvents() {
   try {
     const response = await fetch(`${API_BASE_URL}/order_events?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch order events');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       intakeId: row.intake_id,
@@ -280,9 +285,9 @@ export async function fetchEmailTriage() {
   try {
     const response = await fetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch email triage');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.triage_id),
       clientId: row.client_id,
@@ -307,9 +312,9 @@ export async function fetchExpediciones() {
   try {
     const response = await fetch(`${API_BASE_URL}/expediciones?order=delivery_date.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch expediciones');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: String(row.id),
       code: row.expedicion_code,
@@ -335,9 +340,9 @@ export async function fetchRemitentes() {
   try {
     const response = await fetch(`${API_BASE_URL}/customer_location_stg?order=description.asc&limit=500`);
     if (!response.ok) throw new Error('Failed to fetch remitentes');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: row.id,
       code: row.code || row.id,
@@ -366,9 +371,9 @@ export async function fetchLocationAliases() {
   try {
     const response = await fetch(`${API_BASE_URL}/location_aliases?order=alias_norm.asc&limit=1000`);
     if (!response.ok) throw new Error('Failed to fetch location aliases');
-    
+
     const data = await response.json();
-    
+
     return data.map((row: any) => ({
       id: row.alias_norm,
       aliasNorm: row.alias_norm,
@@ -421,18 +426,18 @@ export async function getAutomationStats() {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const logsToday = logs.filter((l) => new Date(l.createdAt) >= today);
     const emailsToday = emailStats.filter((e) => new Date(e.receivedAt) >= today);
     const triageToday = triage.filter((t) => new Date(t.createdAt) >= today);
-    
+
     const successfulSteps = logsToday.filter((l) => l.status === 'OK').length;
     const errorSteps = logsToday.filter((l) => l.status === 'ERROR').length;
     const warnSteps = logsToday.filter((l) => l.status === 'WARN').length;
-    
+
     const orderEmails = triageToday.filter((t) => t.isOrderEmail).length;
     const nonOrderEmails = triageToday.length - orderEmails;
-    
+
     return {
       emailsProcessedToday: emailsToday.length,
       orderEmailsToday: orderEmails,

@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  RefreshCw, 
-  Mail, 
-  Clock, 
-  User, 
+import {
+  ArrowLeft,
+  RefreshCw,
+  Mail,
+  Clock,
+  User,
   FileText,
   CheckCircle2,
   AlertCircle,
@@ -14,9 +14,9 @@ import {
 import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
-import { mockOrders, getOrderLines, getOrderEvents } from '@/lib/mockData';
+import { fetchOrders, fetchOrdersLog } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { OrderLine, OrderEvent } from '@/types';
+import type { OrderIntake, OrderLine, OrderEvent } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,17 +28,72 @@ export default function OrderDetail() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   const [isReprocessing, setIsReprocessing] = useState(false);
+  const [order, setOrder] = useState<OrderIntake | null>(null);
+  const [events, setEvents] = useState<OrderEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const order = useMemo(() => mockOrders.find((o) => o.id === id), [id]);
-  const lines = useMemo(() => (order ? getOrderLines(order.id) : []), [order]);
-  const events = useMemo(() => (order ? getOrderEvents(order.orderCode) : []), [order]);
+  // Fetch order data from API
+  useEffect(() => {
+    async function loadOrder() {
+      if (!id) return;
 
-  if (!order) {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const orders = await fetchOrders();
+        const foundOrder = orders.find((o) => o.id === id);
+
+        if (foundOrder) {
+          setOrder(foundOrder);
+
+          // Fetch order logs/events
+          if (foundOrder.messageId) {
+            const logs = await fetchOrdersLog(foundOrder.messageId);
+            const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
+              id: log.id,
+              orderCode: foundOrder.orderCode,
+              eventType: log.step || 'unknown',
+              timestamp: log.createdAt,
+              details: log.info ? JSON.stringify(log.info) : log.status,
+            }));
+            setEvents(mappedEvents);
+          }
+        } else {
+          setError('Order not found');
+        }
+      } catch (err) {
+        console.error('Error loading order:', err);
+        setError('Failed to load order');
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadOrder();
+  }, [id]);
+
+  // Empty lines array (could be fetched from ordenes_intake_lineas if needed)
+  const lines: OrderLine[] = [];
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        <p className="mt-4 text-muted-foreground">{t.common?.loading || 'Cargando...'}</p>
+      </div>
+    );
+  }
+
+  // Error or not found state
+  if (error || !order) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <AlertCircle className="h-12 w-12 text-muted-foreground" />
         <h2 className="mt-4 text-lg font-semibold">{t.orders.orderNotFound}</h2>
-        <p className="text-muted-foreground">{t.orders.orderNotFound}</p>
+        <p className="text-muted-foreground">{error || t.orders.orderNotFound}</p>
         <Button asChild className="mt-4">
           <Link to="/orders">{t.orders.backToOrders}</Link>
         </Button>
@@ -159,9 +214,8 @@ export default function OrderDetail() {
                   <div key={event.id} className="flex gap-3">
                     <div className="relative">
                       <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                          isError ? 'bg-destructive/10' : 'bg-primary/10'
-                        }`}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full ${isError ? 'bg-destructive/10' : 'bg-primary/10'
+                          }`}
                       >
                         <Icon className={`h-4 w-4 ${isError ? 'text-destructive' : 'text-primary'}`} />
                       </div>
