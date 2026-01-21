@@ -7,39 +7,135 @@ import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday } from '@/types';
 // API URL - uses Vite proxy in development, or direct URL in production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
+// Default headers for PostgREST to use bvg schema
+const BVG_HEADERS = {
+  'Accept-Profile': 'bvg',
+  'Content-Profile': 'bvg',
+};
+
+/**
+ * Fetch wrapper that adds bvg schema headers for PostgREST
+ */
+async function bvgFetch(url: string, options?: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...BVG_HEADERS,
+      ...options?.headers,
+    },
+  });
+}
+
 /**
  * Fetch orders from ordenes_intake table (bvg schema)
- * Uses PostgREST JOIN to get real client names from customer_stg
+ * Gets real client names via separate customer_stg lookup
  */
 export async function fetchOrders(): Promise<OrderIntake[]> {
   try {
-    // M03: Use PostgREST foreign table join to get client name
-    // Format: ?select=*,customer_stg!client_id(description)
-    const response = await fetch(
-      `${API_BASE_URL}/ordenes_intake?select=*,customer_stg!client_id(description)&order=created_at.desc&limit=200`
-    );
+    // Fetch orders, clients, and line counts in parallel
+    const [ordersResponse, clientsMap, lineCountsMap] = await Promise.all([
+      bvgFetch(`${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200`),
+      fetchClientsMap(), // Client ID -> Name lookup
+      fetchLineCountsMap() // Order ID -> Lines count lookup
+    ]);
 
-    if (!response.ok) throw new Error('Failed to fetch orders');
+    if (!ordersResponse.ok) throw new Error('Failed to fetch orders');
 
-    const ordersData = await response.json();
+    const ordersData = await ordersResponse.json();
 
-    // Map database fields to frontend types
+    // Map database fields to frontend types with real client names and line counts
     return ordersData.map((row: any) => ({
       id: String(row.id),
       orderCode: row.order_code || `ORD-${row.id}`,
       messageId: row.message_id || '',
       clientId: String(row.client_id),
-      // M03: Use real client name from JOIN, fallback to template
-      clientName: row.customer_stg?.description || `Cliente ${row.client_id}`,
+      // M03: Use real client name from lookup, fallback to template
+      clientName: clientsMap[row.client_id] || `Cliente ${row.client_id}`,
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
       status: row.status,
       receivedAt: row.order_date || row.created_at,
       processedAt: row.updated_at,
-      linesCount: 0, // TODO: Calculate from ordenes_intake_lineas
+      // Get real line count from materialized view
+      linesCount: lineCountsMap[row.id] || 0,
     }));
   } catch (error) {
     console.error('Error fetching orders:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch a map of intake_id -> lines_count from materialized view
+ */
+async function fetchLineCountsMap(): Promise<Record<string, number>> {
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/order_line_counts?select=intake_id,lines_count`);
+    if (!response.ok) return {};
+
+    const data = await response.json();
+    const map: Record<string, number> = {};
+    data.forEach((row: any) => {
+      map[String(row.intake_id)] = Number(row.lines_count) || 0;
+    });
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Fetch a map of client_id -> description for quick lookup
+ * Handles zero-padded IDs (e.g., '00006' maps to both '00006' and '6')
+ */
+async function fetchClientsMap(): Promise<Record<string, string>> {
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description&limit=3000`);
+    if (!response.ok) return {};
+
+    const clients = await response.json();
+    const map: Record<string, string> = {};
+    clients.forEach((c: any) => {
+      const description = c.description || `Cliente ${c.id}`;
+      // Store with original ID (e.g., '00006')
+      map[c.id] = description;
+      // Also store with numeric ID (e.g., '6') for matching
+      const numericId = parseInt(c.id, 10);
+      if (!isNaN(numericId)) {
+        map[String(numericId)] = description;
+      }
+    });
+    return map;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Fetch order lines for a specific order from ordenes_intake_lineas
+ */
+export async function fetchOrderLines(intakeId: string): Promise<any[]> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?intake_id=eq.${intakeId}&order=id.asc`
+    );
+    if (!response.ok) return [];
+
+    const lines = await response.json();
+
+    return lines.map((row: any, index: number) => ({
+      id: String(row.id),
+      lineNumber: index + 1,
+      customerName: row.customer_name || 'Sin destino',
+      pallets: Number(row.pallets) || 0,
+      weight: Number(row.weight_kg) || 0,
+      temperature: row.temperature_c,
+      deliveryDate: row.delivery_date,
+      notes: row.line_notes || '',
+      palletType: row.pallet_type || '',
+    }));
+  } catch (error) {
+    console.error('Error fetching order lines:', error);
     return [];
   }
 }
@@ -49,7 +145,7 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
  */
 export async function fetchDLQOrders(): Promise<DLQOrder[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/dlq_orders?order=created_at.desc&limit=100`);
+    const response = await bvgFetch(`${API_BASE_URL}/dlq_orders?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch DLQ orders');
 
     const data = await response.json();
@@ -79,7 +175,7 @@ export async function fetchDLQOrders(): Promise<DLQOrder[]> {
  */
 export async function fetchHolidays(): Promise<Holiday[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/holidays?order=date.asc`);
+    const response = await bvgFetch(`${API_BASE_URL}/holidays?order=date.asc`);
     if (!response.ok) throw new Error('Failed to fetch holidays');
 
     const data = await response.json();
@@ -144,7 +240,7 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
  */
 export async function fetchClients() {
   try {
-    const response = await fetch(`${API_BASE_URL}/customer_stg?order=description.asc`);
+    const response = await bvgFetch(`${API_BASE_URL}/customer_stg?order=description.asc`);
     if (!response.ok) throw new Error('Failed to fetch clients');
 
     const data = await response.json();
@@ -174,7 +270,7 @@ export async function fetchClients() {
  */
 export async function fetchCustomerEmails() {
   try {
-    const response = await fetch(`${API_BASE_URL}/customer_emails?order=customer_id.asc`);
+    const response = await bvgFetch(`${API_BASE_URL}/customer_emails?order=customer_id.asc`);
     if (!response.ok) throw new Error('Failed to fetch customer emails');
 
     const data = await response.json();
@@ -200,7 +296,7 @@ export async function fetchCustomerEmails() {
  */
 export async function fetchEmailStats() {
   try {
-    const response = await fetch(`${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=100`);
+    const response = await bvgFetch(`${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch email stats');
 
     const data = await response.json();
@@ -260,7 +356,7 @@ export async function fetchOrdersLog(messageId?: string) {
  */
 export async function fetchOrderEvents() {
   try {
-    const response = await fetch(`${API_BASE_URL}/order_events?order=created_at.desc&limit=100`);
+    const response = await bvgFetch(`${API_BASE_URL}/order_events?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch order events');
 
     const data = await response.json();
@@ -283,7 +379,7 @@ export async function fetchOrderEvents() {
  */
 export async function fetchEmailTriage() {
   try {
-    const response = await fetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=100`);
+    const response = await bvgFetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch email triage');
 
     const data = await response.json();
@@ -310,7 +406,7 @@ export async function fetchEmailTriage() {
  */
 export async function fetchExpediciones() {
   try {
-    const response = await fetch(`${API_BASE_URL}/expediciones?order=delivery_date.desc&limit=100`);
+    const response = await bvgFetch(`${API_BASE_URL}/expediciones?order=delivery_date.desc&limit=100`);
     if (!response.ok) throw new Error('Failed to fetch expediciones');
 
     const data = await response.json();
@@ -338,7 +434,7 @@ export async function fetchExpediciones() {
  */
 export async function fetchRemitentes() {
   try {
-    const response = await fetch(`${API_BASE_URL}/customer_location_stg?order=description.asc&limit=500`);
+    const response = await bvgFetch(`${API_BASE_URL}/customer_location_stg?order=description.asc&limit=500`);
     if (!response.ok) throw new Error('Failed to fetch remitentes');
 
     const data = await response.json();
@@ -369,7 +465,7 @@ export async function fetchRemitentes() {
  */
 export async function fetchLocationAliases() {
   try {
-    const response = await fetch(`${API_BASE_URL}/location_aliases?order=alias_norm.asc&limit=1000`);
+    const response = await bvgFetch(`${API_BASE_URL}/location_aliases?order=alias_norm.asc&limit=1000`);
     if (!response.ok) throw new Error('Failed to fetch location aliases');
 
     const data = await response.json();
@@ -397,7 +493,7 @@ export async function fetchLocationAliases() {
  */
 export async function fetchLocationsMap() {
   try {
-    const response = await fetch(`${API_BASE_URL}/customer_location_stg?select=id,description,code&limit=2000`);
+    const response = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description,code&limit=2000`);
     if (!response.ok) throw new Error('Failed to fetch locations');
     const data = await response.json();
     const map: Record<string, { name: string; code?: string }> = {};

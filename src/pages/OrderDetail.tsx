@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
-import { fetchOrders, fetchOrdersLog } from '@/lib/ordersService';
+import { fetchOrders, fetchOrdersLog, fetchOrderLines } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderLine, OrderEvent } from '@/types';
 import { format } from 'date-fns';
@@ -30,6 +30,7 @@ export default function OrderDetail() {
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [order, setOrder] = useState<OrderIntake | null>(null);
   const [events, setEvents] = useState<OrderEvent[]>([]);
+  const [lines, setLines] = useState<OrderLine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +48,20 @@ export default function OrderDetail() {
 
         if (foundOrder) {
           setOrder(foundOrder);
+
+          // Fetch order lines from ordenes_intake_lineas
+          const orderLines = await fetchOrderLines(id);
+          const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
+            id: line.id,
+            orderIntakeId: id,
+            lineNumber: line.lineNumber,
+            productCode: String(line.lineNumber).padStart(3, '0'),
+            productName: line.customerName,  // Customer/destination name
+            quantity: line.pallets,
+            unit: line.palletType || 'PLT',
+            notes: line.notes || '',
+          }));
+          setLines(mappedLines);
 
           // Fetch order logs/events
           if (foundOrder.messageId) {
@@ -74,8 +89,7 @@ export default function OrderDetail() {
     loadOrder();
   }, [id]);
 
-  // Empty lines array (could be fetched from ordenes_intake_lineas if needed)
-  const lines: OrderLine[] = [];
+  // Lines now fetched from API in useEffect above
 
   // Loading state
   if (isLoading) {
