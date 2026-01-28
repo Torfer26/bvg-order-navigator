@@ -9,12 +9,13 @@ import {
   FileText,
   CheckCircle2,
   AlertCircle,
-  Loader2
+  Loader2,
+  Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
-import { fetchOrders, fetchOrdersLog, fetchOrderLines } from '@/lib/ordersService';
+import { fetchOrders, fetchOrdersLog, fetchOrderLines, approveOrderForFTP } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderLine, OrderEvent } from '@/types';
 import { format } from 'date-fns';
@@ -28,6 +29,7 @@ export default function OrderDetail() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   const [isReprocessing, setIsReprocessing] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
   const [order, setOrder] = useState<OrderIntake | null>(null);
   const [events, setEvents] = useState<OrderEvent[]>([]);
   const [lines, setLines] = useState<OrderLine[]>([]);
@@ -55,13 +57,17 @@ export default function OrderDetail() {
             id: line.id,
             orderIntakeId: id,
             lineNumber: line.lineNumber,
-            productCode: String(line.lineNumber).padStart(3, '0'),
-            productName: line.customerName,  // Customer/destination name
-            quantity: line.pallets,
-            unit: line.palletType || 'PLT',
-            notes: line.notes || '',
+            customer: line.customer,           // CLIENTE del Excel
+            destination: line.destination,     // DESTINO (ciudad)
+            destinationId: line.destinationId,
+            notes: line.notes,                 // NOTA del Excel
+            pallets: line.pallets,             // PALETS
+            deliveryDate: line.deliveryDate,   // FECHA DE ENTREGA
+            observations: line.observations,   // OBSERVACIONES
+            unit: line.unit || 'PLT',
           }));
           setLines(mappedLines);
+
 
           // Fetch order logs/events
           if (foundOrder.messageId) {
@@ -122,14 +128,42 @@ export default function OrderDetail() {
     toast.success(t.orders.reprocessSent);
   };
 
+  const handleApproveForFTP = async () => {
+    if (!order) return;
+
+    setIsApproving(true);
+    try {
+      const result = await approveOrderForFTP(order.id);
+      if (result.success) {
+        toast.success(t.orders?.approveSuccess || 'Pedido autorizado y enviado correctamente');
+        // Reload order data to show updated status
+        window.location.reload();
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error(t.orders?.approveError || 'Error al autorizar pedido');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
   const lineColumns: Column<OrderLine>[] = [
     { key: 'lineNumber', header: '#', cell: (row) => row.lineNumber, className: 'w-12' },
-    { key: 'productCode', header: t.orders.productCode, cell: (row) => <span className="font-mono text-sm">{row.productCode}</span> },
-    { key: 'productName', header: t.orders.product, cell: (row) => row.productName },
-    { key: 'quantity', header: t.orders.quantity, cell: (row) => row.quantity, className: 'text-right' },
-    { key: 'unit', header: t.orders.unit, cell: (row) => row.unit, className: 'w-16' },
-    { key: 'notes', header: t.orders.notes, cell: (row) => row.notes || '-', className: 'text-muted-foreground' },
+    { key: 'customer', header: t.orders?.customer || 'Cliente', cell: (row) => row.customer },
+    { key: 'destination', header: t.orders?.destination || 'Destino', cell: (row) => row.destination },
+    { key: 'notes', header: t.orders?.lineNotes || 'Nota', cell: (row) => row.notes || '-', className: 'text-muted-foreground' },
+    { key: 'pallets', header: t.orders?.pallets || 'Palets', cell: (row) => row.pallets, className: 'text-right w-20' },
+    {
+      key: 'deliveryDate',
+      header: t.orders?.deliveryDate || 'Fecha Entrega',
+      cell: (row) => row.deliveryDate
+        ? format(new Date(row.deliveryDate), 'dd/MM/yyyy', { locale: dateLocale })
+        : '-',
+      className: 'w-28'
+    },
   ];
+
 
   const eventTypeIcons: Record<string, React.ElementType> = {
     received: Mail,
@@ -178,6 +212,28 @@ export default function OrderDetail() {
             {isReprocessing ? t.orders.reprocessing : t.orders.reprocess}
           </Button>
         )}
+
+        {/* Botón Autorizar y Enviar FTP */}
+        {hasRole(['admin', 'ops']) &&
+          (order.status === 'VALIDATED' ||
+            order.status === 'VALIDATING' ||
+            order.status === 'IN_REVIEW' ||
+            order.status === 'RECEIVED') && (
+            <Button
+              onClick={handleApproveForFTP}
+              disabled={isApproving}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {isApproving ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-2 h-4 w-4" />
+              )}
+              {isApproving
+                ? (t.orders?.approving || 'Autorizando...')
+                : (t.orders?.approveAndSend || 'Autorizar y Enviar')}
+            </Button>
+          )}
       </div>
 
       {/* Order Info */}

@@ -113,6 +113,7 @@ async function fetchClientsMap(): Promise<Record<string, string>> {
 
 /**
  * Fetch order lines for a specific order from ordenes_intake_lineas
+ * Includes lookup for destination name from customer_location_stg
  */
 export async function fetchOrderLines(intakeId: string): Promise<any[]> {
   try {
@@ -123,22 +124,43 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
 
     const lines = await response.json();
 
+    // Get destination IDs to fetch location names
+    const destIds = lines
+      .map((row: any) => row.destination_id)
+      .filter((id: any) => id != null);
+
+    // Fetch location names if there are destination IDs
+    let locationsMap: Record<string, string> = {};
+    if (destIds.length > 0) {
+      const locResponse = await bvgFetch(
+        `${API_BASE_URL}/customer_location_stg?id=in.(${destIds.join(',')})`
+      );
+      if (locResponse.ok) {
+        const locations = await locResponse.json();
+        locations.forEach((loc: any) => {
+          locationsMap[String(loc.id)] = loc.location || loc.description || 'Sin destino';
+        });
+      }
+    }
+
     return lines.map((row: any, index: number) => ({
       id: String(row.id),
       lineNumber: index + 1,
-      customerName: row.customer_name || 'Sin destino',
-      pallets: Number(row.pallets) || 0,
-      weight: Number(row.weight_kg) || 0,
-      temperature: row.temperature_c,
-      deliveryDate: row.delivery_date,
+      customer: row.customer_name || 'Sin cliente',
+      destination: locationsMap[String(row.destination_id)] || 'Sin destino',
+      destinationId: row.destination_id,
       notes: row.line_notes || '',
-      palletType: row.pallet_type || '',
+      pallets: Number(row.pallets) || 0,
+      deliveryDate: row.delivery_date,
+      observations: '',
+      unit: row.pallet_type || 'PLT',
     }));
   } catch (error) {
     console.error('Error fetching order lines:', error);
     return [];
   }
 }
+
 
 /**
  * Fetch DLQ orders from bvg.dlq_orders
@@ -557,6 +579,50 @@ export async function getAutomationStats() {
       warnSteps: 0,
       automationSuccessRate: 100,
       eventsToday: 0,
+    };
+  }
+}
+
+// ========== ORDER APPROVAL FUNCTIONS ==========
+
+/**
+ * Approve order and trigger FTP upload via n8n webhook
+ */
+export async function approveOrderForFTP(
+  intakeId: string,
+  approvedBy?: string
+): Promise<{ success: boolean; message: string; orderCode?: string }> {
+  try {
+    const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
+
+    const response = await fetch(`${N8N_WEBHOOK_URL}/approve-order`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        intake_id: intakeId,
+        approved_by: approvedBy || 'frontend_user',
+        approved_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    const result = await response.json();
+    return {
+      success: true,
+      message: result.message || 'Pedido aprobado y enviado correctamente',
+      orderCode: result.order_code,
+    };
+  } catch (error) {
+    console.error('Error approving order for FTP:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error desconocido al aprobar pedido',
     };
   }
 }

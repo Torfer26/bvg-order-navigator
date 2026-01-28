@@ -15,7 +15,7 @@ export interface AuthState {
 }
 
 // Order Status Types (matching bvg.order_intake_status ENUM)
-export type OrderIntakeStatus = 
+export type OrderIntakeStatus =
   | 'RECEIVED'       // Recibido, aún no procesado
   | 'PARSING'        // En análisis por IA
   | 'VALIDATING'     // Validando datos
@@ -46,11 +46,14 @@ export interface OrderLine {
   id: string;
   orderIntakeId: string;
   lineNumber: number;
-  productCode: string;
-  productName: string;
-  quantity: number;
-  unit: string;
-  notes?: string;
+  customer: string;       // CLIENTE - nombre del consignatario
+  destination: string;    // DESTINO - ciudad de entrega
+  destinationId?: number; // ID de location para lookup
+  notes: string;          // NOTA - descripción del producto
+  pallets: number;        // PALETS - cantidad
+  deliveryDate?: string;  // FECHA DE ENTREGA
+  observations?: string;  // OBSERVACIONES
+  unit: string;           // PLT por defecto
 }
 
 export interface OrderEvent {
