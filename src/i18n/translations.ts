@@ -120,6 +120,14 @@ export interface Translations {
     quantity: string;
     unit: string;
     notes: string;
+    // Columnas de líneas de pedido
+    consignee: string;        // Antes "cliente" - es el punto de entrega
+    locality: string;         // Antes "destino" - es la localidad/ciudad
+    pallets: string;
+    deliveryDate: string;
+    lineNotes: string;
+    pending: string;
+    manual: string;
   };
   
   // Order statuses (matching bvg.order_intake_status ENUM)
@@ -372,6 +380,14 @@ export const translations: Record<Language, Translations> = {
       quantity: 'Cantidad',
       unit: 'UM',
       notes: 'Notas',
+      // Columnas de líneas de pedido
+      consignee: 'Consignatario',
+      locality: 'Localidad',
+      pallets: 'Palets',
+      deliveryDate: 'Fecha Entrega',
+      lineNotes: 'Nota',
+      pending: 'Pendiente',
+      manual: 'Manual',
     },
     orderStatus: {
       RECEIVED: 'Recibido',
@@ -601,6 +617,14 @@ export const translations: Record<Language, Translations> = {
       product: 'Prodotto',
       quantity: 'Quantità',
       unit: 'UM',
+      // Columnas de líneas de pedido
+      consignee: 'Consegnatario',
+      locality: 'Località',
+      pallets: 'Pallet',
+      deliveryDate: 'Data Consegna',
+      lineNotes: 'Note',
+      pending: 'In attesa',
+      manual: 'Manuale',
       notes: 'Note',
     },
     orderStatus: {

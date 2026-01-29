@@ -12,7 +12,7 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
     const stored = localStorage.getItem('bvg_language');
-    return (stored as Language) || 'it';
+    return (stored as Language) || 'es';
   });
 
   const setLanguage = useCallback((lang: Language) => {

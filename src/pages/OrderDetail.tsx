@@ -214,10 +214,10 @@ export default function OrderDetail() {
 
   const lineColumns: Column<OrderLine>[] = [
     { key: 'lineNumber', header: '#', cell: (row) => row.lineNumber, className: 'w-12' },
-    { key: 'customer', header: t.orders?.customer || 'Cliente', cell: (row) => row.customer },
+    { key: 'customer', header: t.orders?.consignee || 'Consignatario', cell: (row) => row.customer },
     { 
       key: 'destination', 
-      header: t.orders?.destination || 'Destino', 
+      header: t.orders?.locality || 'Localidad', 
       cell: (row) => {
         const isPending = needsLocationSelection(row);
         return (
@@ -232,7 +232,7 @@ export default function OrderDetail() {
                 </span>
                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
                   <AlertTriangle className="h-3 w-3 mr-1" />
-                  Pendiente
+                  {t.orders?.pending || 'Pendiente'}
                 </Badge>
               </>
             ) : (
@@ -241,7 +241,7 @@ export default function OrderDetail() {
                 {row.locationStatus === 'MANUALLY_SET' && (
                   <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
                     <MapPin className="h-3 w-3 mr-1" />
-                    Manual
+                    {t.orders?.manual || 'Manual'}
                   </Badge>
                 )}
               </>
@@ -250,7 +250,7 @@ export default function OrderDetail() {
         );
       }
     },
-    { key: 'notes', header: t.orders?.lineNotes || 'Nota', cell: (row) => row.notes || '-', className: 'text-muted-foreground' },
+    { key: 'notes', header: t.orders?.lineNotes || 'Nota', cell: (row) => row.notes || '-', className: 'text-muted-foreground max-w-[200px] truncate' },
     { key: 'pallets', header: t.orders?.pallets || 'Palets', cell: (row) => row.pallets, className: 'text-right w-20' },
     {
       key: 'deliveryDate',

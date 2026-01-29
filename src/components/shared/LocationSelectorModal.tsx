@@ -42,12 +42,20 @@ export function LocationSelectorModal({
   const [aliasText, setAliasText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Initialize alias text from raw destination when line changes
+  // Initialize alias text from raw customer (consignatario) when line changes
+  // El alias debe ser el nombre del consignatario (rawCustomerText), no la localidad (rawDestinationText)
+  // porque el matching del workflow busca por nombre de consignatario
   useEffect(() => {
     if (line) {
-      const rawText = line.rawDestinationText || line.rawCustomerText || line.customer || '';
-      setAliasText(rawText.trim().toUpperCase());
-      setSearchQuery(rawText);
+      // Para el alias: usar el nombre del consignatario del Excel
+      const aliasSource = line.rawCustomerText || line.customer || '';
+      setAliasText(aliasSource.trim().toUpperCase());
+      
+      // Para la búsqueda inicial: combinar consignatario + localidad para mejor matching
+      const searchSource = [line.rawCustomerText, line.rawDestinationText]
+        .filter(Boolean)
+        .join(' ');
+      setSearchQuery(searchSource || line.customer || '');
       setSelectedLocation(null);
     }
   }, [line]);
@@ -144,11 +152,19 @@ export function LocationSelectorModal({
             <MapPin className="h-5 w-5 text-primary" />
             Seleccionar Ubicacion
           </DialogTitle>
-          <DialogDescription>
-            Linea {line.lineNumber}: <span className="font-medium">{line.customer}</span>
-            {line.rawDestinationText && (
-              <span className="block text-xs mt-1">
-                Texto original: "{line.rawDestinationText}"
+          <DialogDescription className="space-y-1">
+            <span className="block">
+              Linea {line.lineNumber}: <span className="font-medium">{line.customer}</span>
+            </span>
+            {(line.rawCustomerText || line.rawDestinationText) && (
+              <span className="block text-xs text-muted-foreground">
+                {line.rawCustomerText && (
+                  <span>Consignatario: <span className="font-medium">"{line.rawCustomerText}"</span></span>
+                )}
+                {line.rawCustomerText && line.rawDestinationText && ' → '}
+                {line.rawDestinationText && (
+                  <span>Localidad: <span className="font-medium">"{line.rawDestinationText}"</span></span>
+                )}
               </span>
             )}
           </DialogDescription>
