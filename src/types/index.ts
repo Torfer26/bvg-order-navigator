@@ -42,6 +42,20 @@ export interface OrderIntake {
   linesCount: number;
 }
 
+// Location status for order lines
+export type LocationStatus = 'AUTO' | 'PENDING_LOCATION' | 'MANUALLY_SET' | 'CONFIRMED';
+
+// Location suggestion from similarity search
+export interface LocationSuggestion {
+  id: number;
+  name: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  zipCode?: string;
+  score: number;
+}
+
 export interface OrderLine {
   id: string;
   orderIntakeId: string;
@@ -54,6 +68,25 @@ export interface OrderLine {
   deliveryDate?: string;  // FECHA DE ENTREGA
   observations?: string;  // OBSERVACIONES
   unit: string;           // PLT por defecto
+  // New fields for location suggestions
+  locationStatus?: LocationStatus;
+  locationSuggestions?: LocationSuggestion[];
+  rawDestinationText?: string;
+  rawCustomerText?: string;
+  locationSetBy?: string;
+  locationSetAt?: string;
+}
+
+// Location from customer_location_stg for search results
+export interface Location {
+  id: number;
+  code?: string;
+  name: string;
+  address?: string;
+  zipCode?: string;
+  city?: string;
+  province?: string;
+  country?: string;
 }
 
 export interface OrderEvent {

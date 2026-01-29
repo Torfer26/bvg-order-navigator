@@ -7,8 +7,9 @@ import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { fetchOrders, fetchClients } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderFilters, Client } from '@/types';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { es, it } from 'date-fns/locale';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const PAGE_SIZE = 10;
 
@@ -16,7 +17,7 @@ export default function Orders() {
   const navigate = useNavigate();
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
-  
+
   const [filters, setFilters] = useState<OrderFilters>({});
   const [page, setPage] = useState(1);
   const [orders, setOrders] = useState<OrderIntake[]>([]);
@@ -42,10 +43,61 @@ export default function Orders() {
     loadData();
   }, []);
 
+  // Calculate counts for tabs
+  const statusCounts = useMemo(() => {
+    const counts = {
+      all: 0,
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      error: 0
+    };
+
+    orders.forEach(order => {
+      counts.all++;
+      const status = order.status?.toLowerCase() || 'pending';
+      if (status === 'recibido' || status === 'validating' || status === 'in_review') {
+        counts.pending++;
+      } else if (status === 'processing' || status === 'generating_csv' || status === 'sent_ftp') {
+        counts.processing++;
+      } else if (status === 'completed' || status === 'received') { // Assuming 'received' might be final in some flows or mapped to completed
+        // Actually based on previous conversations 'RECEIVED' is initial. Let's map carefully.
+        // Mapping based on common sense of the statuses seen: 
+        // PENDING: VALIDATING, IN_REVIEW, RECEIVED (initial)
+        // PROCESSING: PROCESSING, GENERATING_CSV, SENT_FTP
+        // COMPLETED: COMPLETED
+        // ERROR: ERROR
+      }
+
+      // Simpler mapping based on strict strings if possible, or use the StatusBadge logic
+      if (['received', 'validating', 'in_review', 'validated'].includes(status)) counts.pending++;
+      else if (['processing', 'generating_csv', 'sent_ftp'].includes(status)) counts.processing++;
+      else if (['completed'].includes(status)) counts.completed++;
+      else if (['error'].includes(status)) counts.error++;
+    });
+    return counts;
+  }, [orders]);
+
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       if (filters.clientId && order.clientId !== filters.clientId) return false;
-      if (filters.status && order.status !== filters.status) return false;
+
+      // Status filtering now handled by Tabs (or explicit filter if kept)
+      // We will map the tab value to status groups
+      if (filters.status) {
+        const s = filters.status;
+        const orderStatus = order.status?.toLowerCase();
+        if (s === 'pending') {
+          if (!['received', 'validating', 'in_review', 'validated'].includes(orderStatus)) return false;
+        } else if (s === 'processing') {
+          if (!['processing', 'generating_csv', 'sent_ftp'].includes(orderStatus)) return false;
+        } else if (s === 'completed') {
+          if (orderStatus !== 'completed') return false;
+        } else if (s === 'error') {
+          if (orderStatus !== 'error') return false;
+        }
+      }
+
       if (filters.search) {
         const search = filters.search.toLowerCase();
         if (
@@ -86,9 +138,14 @@ export default function Orders() {
       key: 'client',
       header: t.common.client,
       cell: (row) => (
-        <div>
-          <p className="font-medium">{row.clientName}</p>
-          <p className="text-sm text-muted-foreground">{row.senderAddress}</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-xs">
+            {row.clientName.substring(0, 2).toUpperCase()}
+          </div>
+          <div>
+            <p className="font-medium text-sm">{row.clientName}</p>
+            <p className="text-xs text-muted-foreground">{row.senderAddress}</p>
+          </div>
         </div>
       ),
     },
@@ -115,7 +172,16 @@ export default function Orders() {
     {
       key: 'receivedAt',
       header: t.orders.receivedAt,
-      cell: (row) => format(new Date(row.receivedAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale }),
+      cell: (row) => (
+        <div className="flex flex-col">
+          <span className="font-medium">
+            {formatDistanceToNow(new Date(row.receivedAt), { addSuffix: true, locale: dateLocale })}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {format(new Date(row.receivedAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale })}
+          </span>
+        </div>
+      ),
     },
   ];
 
@@ -144,6 +210,30 @@ export default function Orders() {
         <p className="page-description">{t.orders.subtitle}</p>
       </div>
 
+      <Tabs
+        defaultValue="all"
+        className="mb-6"
+        onValueChange={(val) => handleFilterChange('status', val === 'all' ? undefined : val)}
+      >
+        <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
+          <TabsTrigger value="all">
+            Todo <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{statusCounts.all}</span>
+          </TabsTrigger>
+          <TabsTrigger value="pending">
+            Pendientes <span className="ml-2 rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-700">{statusCounts.pending}</span>
+          </TabsTrigger>
+          <TabsTrigger value="processing">
+            Procesando <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">{statusCounts.processing}</span>
+          </TabsTrigger>
+          <TabsTrigger value="completed">
+            Hecho <span className="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700">{statusCounts.completed}</span>
+          </TabsTrigger>
+          <TabsTrigger value="error">
+            Error <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">{statusCounts.error}</span>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+
       <FilterBar
         filters={[
           { key: 'search', type: 'search', label: t.common.search, placeholder: t.orders.searchPlaceholder },
@@ -153,23 +243,16 @@ export default function Orders() {
             label: t.common.client,
             options: clients.map((c) => ({ value: c.id, label: c.name })),
           },
-          {
-            key: 'status',
-            type: 'select',
-            label: t.common.status,
-            options: [
-              { value: 'pending', label: t.orderStatus.pending },
-              { value: 'processing', label: t.orderStatus.processing },
-              { value: 'completed', label: t.orderStatus.completed },
-              { value: 'error', label: t.orderStatus.error },
-            ],
-          },
+          // Removed Status select as it is now handled by Tabs
           { key: 'dateFrom', type: 'date', label: t.common.from },
           { key: 'dateTo', type: 'date', label: t.common.to },
         ]}
         values={filters as Record<string, string | undefined>}
         onChange={handleFilterChange}
-        onClear={handleClearFilters}
+        onClear={() => {
+          handleFilterChange('status', undefined); // Reset tabs implicitly if needed, or keep tabs state separate
+          handleClearFilters();
+        }}
       />
 
       <DataTable

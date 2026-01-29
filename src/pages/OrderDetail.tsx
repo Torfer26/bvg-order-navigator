@@ -10,14 +10,18 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Send
+  Send,
+  MapPin,
+  AlertTriangle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
+import { LocationSelectorModal } from '@/components/shared/LocationSelectorModal';
 import { fetchOrders, fetchOrdersLog, fetchOrderLines, approveOrderForFTP } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { OrderIntake, OrderLine, OrderEvent } from '@/types';
+import type { OrderIntake, OrderLine, OrderEvent, Location } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,64 +39,88 @@ export default function OrderDetail() {
   const [lines, setLines] = useState<OrderLine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Location selector modal state
+  const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
+  const [selectedLineForLocation, setSelectedLineForLocation] = useState<OrderLine | null>(null);
 
   // Fetch order data from API
-  useEffect(() => {
-    async function loadOrder() {
-      if (!id) return;
+  // Function to load order data (can be called for refresh)
+  const fetchOrderData = async (showLoading = true) => {
+    if (!id) return;
 
+    if (showLoading) {
       setIsLoading(true);
       setError(null);
-
-      try {
-        const orders = await fetchOrders();
-        const foundOrder = orders.find((o) => o.id === id);
-
-        if (foundOrder) {
-          setOrder(foundOrder);
-
-          // Fetch order lines from ordenes_intake_lineas
-          const orderLines = await fetchOrderLines(id);
-          const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
-            id: line.id,
-            orderIntakeId: id,
-            lineNumber: line.lineNumber,
-            customer: line.customer,           // CLIENTE del Excel
-            destination: line.destination,     // DESTINO (ciudad)
-            destinationId: line.destinationId,
-            notes: line.notes,                 // NOTA del Excel
-            pallets: line.pallets,             // PALETS
-            deliveryDate: line.deliveryDate,   // FECHA DE ENTREGA
-            observations: line.observations,   // OBSERVACIONES
-            unit: line.unit || 'PLT',
-          }));
-          setLines(mappedLines);
-
-
-          // Fetch order logs/events
-          if (foundOrder.messageId) {
-            const logs = await fetchOrdersLog(foundOrder.messageId);
-            const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
-              id: log.id,
-              orderCode: foundOrder.orderCode,
-              eventType: log.step || 'unknown',
-              timestamp: log.createdAt,
-              details: log.info ? JSON.stringify(log.info) : log.status,
-            }));
-            setEvents(mappedEvents);
-          }
-        } else {
-          setError('Order not found');
-        }
-      } catch (err) {
-        console.error('Error loading order:', err);
-        setError('Failed to load order');
-      } finally {
-        setIsLoading(false);
-      }
     }
 
-    loadOrder();
+    try {
+      const orders = await fetchOrders();
+      const foundOrder = orders.find((o) => o.id === id);
+
+      if (foundOrder) {
+        setOrder(foundOrder);
+
+        // Fetch order lines from ordenes_intake_lineas
+        const orderLines = await fetchOrderLines(id);
+        const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
+          id: line.id,
+          orderIntakeId: id,
+          lineNumber: line.lineNumber,
+          customer: line.customer,
+          destination: line.destination,
+          destinationId: line.destinationId,
+          notes: line.notes,
+          pallets: line.pallets,
+          deliveryDate: line.deliveryDate,
+          observations: line.observations,
+          unit: line.unit || 'PLT',
+          // Campos para sugerencias de ubicación
+          locationStatus: line.locationStatus,
+          locationSuggestions: line.locationSuggestions,
+          rawDestinationText: line.rawDestinationText,
+          rawCustomerText: line.rawCustomerText,
+          locationSetBy: line.locationSetBy,
+          locationSetAt: line.locationSetAt,
+        }));
+        setLines(mappedLines);
+
+        // Fetch order logs/events
+        if (foundOrder.messageId) {
+          const logs = await fetchOrdersLog(foundOrder.messageId);
+          const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
+            id: log.id,
+            orderCode: foundOrder.orderCode,
+            eventType: log.step || 'unknown',
+            timestamp: log.createdAt,
+            details: log.info ? JSON.stringify(log.info) : log.status,
+          }));
+          
+          // Deduplicar eventos: mantener solo el primero de cada tipo (step)
+          const seenSteps = new Set<string>();
+          const uniqueEvents = mappedEvents.filter((event) => {
+            if (seenSteps.has(event.eventType)) {
+              return false; // Ya vimos este step, ignorar duplicado
+            }
+            seenSteps.add(event.eventType);
+            return true;
+          });
+          
+          setEvents(uniqueEvents);
+        }
+      } else {
+        setError('Order not found');
+      }
+    } catch (err) {
+      console.error('Error loading order:', err);
+      setError('Failed to load order');
+    } finally {
+      if (showLoading) setIsLoading(false);
+    }
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchOrderData(true);
   }, [id]);
 
   // Lines now fetched from API in useEffect above
@@ -136,8 +164,14 @@ export default function OrderDetail() {
       const result = await approveOrderForFTP(order.id);
       if (result.success) {
         toast.success(t.orders?.approveSuccess || 'Pedido autorizado y enviado correctamente');
-        // Reload order data to show updated status
-        window.location.reload();
+
+        // Optimistic UI Update: Change status immediately without reload
+        setOrder(prev => prev ? ({ ...prev, status: 'PROCESSING' }) : null);
+
+        // Background revalidation: Refresh events/logs carefully
+        // Giving a small delay to allow n8n to process at least the first event
+        setTimeout(() => fetchOrderData(false), 2000);
+
       } else {
         toast.error(result.message);
       }
@@ -148,10 +182,74 @@ export default function OrderDetail() {
     }
   };
 
+  // Check if a line needs location selection
+  const needsLocationSelection = (line: OrderLine) => {
+    return !line.destinationId || line.locationStatus === 'PENDING_LOCATION';
+  };
+
+  // Handle location selection for a line
+  const handleOpenLocationModal = (line: OrderLine) => {
+    setSelectedLineForLocation(line);
+    setIsLocationModalOpen(true);
+  };
+
+  // Handle when location is successfully set
+  const handleLocationSet = (lineId: string, location: Location) => {
+    setLines((prevLines) =>
+      prevLines.map((line) =>
+        line.id === lineId
+          ? {
+              ...line,
+              destinationId: location.id,
+              destination: location.name,
+              locationStatus: 'MANUALLY_SET',
+            }
+          : line
+      )
+    );
+  };
+
+  // Count of lines needing location
+  const pendingLocationCount = lines.filter(needsLocationSelection).length;
+
   const lineColumns: Column<OrderLine>[] = [
     { key: 'lineNumber', header: '#', cell: (row) => row.lineNumber, className: 'w-12' },
     { key: 'customer', header: t.orders?.customer || 'Cliente', cell: (row) => row.customer },
-    { key: 'destination', header: t.orders?.destination || 'Destino', cell: (row) => row.destination },
+    { 
+      key: 'destination', 
+      header: t.orders?.destination || 'Destino', 
+      cell: (row) => {
+        const isPending = needsLocationSelection(row);
+        return (
+          <div 
+            className={`flex items-center gap-2 ${isPending ? 'cursor-pointer hover:underline' : ''}`}
+            onClick={isPending ? () => handleOpenLocationModal(row) : undefined}
+          >
+            {isPending ? (
+              <>
+                <span className="text-muted-foreground italic">
+                  {row.rawDestinationText || row.destination || 'Sin destino'}
+                </span>
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                  <AlertTriangle className="h-3 w-3 mr-1" />
+                  Pendiente
+                </Badge>
+              </>
+            ) : (
+              <>
+                <span>{row.destination}</span>
+                {row.locationStatus === 'MANUALLY_SET' && (
+                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                    <MapPin className="h-3 w-3 mr-1" />
+                    Manual
+                  </Badge>
+                )}
+              </>
+            )}
+          </div>
+        );
+      }
+    },
     { key: 'notes', header: t.orders?.lineNotes || 'Nota', cell: (row) => row.notes || '-', className: 'text-muted-foreground' },
     { key: 'pallets', header: t.orders?.pallets || 'Palets', cell: (row) => row.pallets, className: 'text-right w-20' },
     {
@@ -161,6 +259,22 @@ export default function OrderDetail() {
         ? format(new Date(row.deliveryDate), 'dd/MM/yyyy', { locale: dateLocale })
         : '-',
       className: 'w-28'
+    },
+    // Action column for editing location
+    {
+      key: 'actions',
+      header: '',
+      cell: (row) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => handleOpenLocationModal(row)}
+          className="h-8 px-2"
+        >
+          <MapPin className="h-4 w-4" />
+        </Button>
+      ),
+      className: 'w-12'
     },
   ];
 
@@ -315,13 +429,48 @@ export default function OrderDetail() {
 
       {/* Order Lines */}
       <div>
-        <h2 className="mb-4 text-lg font-semibold">{t.orders.orderLines} ({lines.length})</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">{t.orders.orderLines} ({lines.length})</h2>
+          {pendingLocationCount > 0 && (
+            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              {pendingLocationCount} {pendingLocationCount === 1 ? 'ubicacion pendiente' : 'ubicaciones pendientes'}
+            </Badge>
+          )}
+        </div>
+
+        {/* Alert for pending locations */}
+        {pendingLocationCount > 0 && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800">
+                Hay {pendingLocationCount} {pendingLocationCount === 1 ? 'linea' : 'lineas'} sin ubicacion asignada
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                Haz clic en "Pendiente" o en el icono de ubicacion para seleccionar manualmente
+              </p>
+            </div>
+          </div>
+        )}
+
         <DataTable
           columns={lineColumns}
           data={lines}
           keyExtractor={(row) => row.id}
         />
       </div>
+
+      {/* Location Selector Modal */}
+      <LocationSelectorModal
+        isOpen={isLocationModalOpen}
+        onClose={() => {
+          setIsLocationModalOpen(false);
+          setSelectedLineForLocation(null);
+        }}
+        line={selectedLineForLocation}
+        onLocationSet={handleLocationSet}
+      />
     </div>
   );
 }

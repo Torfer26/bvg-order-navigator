@@ -2,7 +2,7 @@
  * Orders Service - Fetches real data from PostgREST API (bvg schema)
  */
 
-import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday } from '@/types';
+import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday, Location, LocationSuggestion } from '@/types';
 
 // API URL - uses Vite proxy in development, or direct URL in production
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
@@ -54,7 +54,8 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
       status: row.status,
-      receivedAt: row.order_date || row.created_at,
+      // Usar created_at para la hora real de recepción (order_date solo tiene fecha)
+      receivedAt: row.created_at,
       processedAt: row.updated_at,
       // Get real line count from materialized view
       linesCount: lineCountsMap[row.id] || 0,
@@ -147,13 +148,20 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
       id: String(row.id),
       lineNumber: index + 1,
       customer: row.customer_name || 'Sin cliente',
-      destination: locationsMap[String(row.destination_id)] || 'Sin destino',
+      destination: locationsMap[String(row.destination_id)] || row.raw_destination_text || 'Sin destino',
       destinationId: row.destination_id,
       notes: row.line_notes || '',
       pallets: Number(row.pallets) || 0,
       deliveryDate: row.delivery_date,
       observations: '',
       unit: row.pallet_type || 'PLT',
+      // Location suggestion fields
+      locationStatus: row.location_status || (row.destination_id ? 'AUTO' : 'PENDING_LOCATION'),
+      locationSuggestions: row.location_suggestions || [],
+      rawDestinationText: row.raw_destination_text,
+      rawCustomerText: row.raw_customer_text,
+      locationSetBy: row.location_set_by,
+      locationSetAt: row.location_set_at,
     }));
   } catch (error) {
     console.error('Error fetching order lines:', error);
@@ -217,6 +225,7 @@ export async function fetchHolidays(): Promise<Holiday[]> {
 
 /**
  * Fetch dashboard KPIs from real data
+ * Fixed: Now limits avgProcessingTime calculation to last 7 days
  */
 export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
   try {
@@ -232,16 +241,58 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
 
     const ordersToday = orders.filter((o) => new Date(o.receivedAt) >= today).length;
     const ordersWeek = orders.filter((o) => new Date(o.receivedAt) >= weekAgo).length;
-    const emailsToday = emailStats.filter((e) => new Date(e.receivedAt) >= today).length;
     const pendingDLQ = dlqOrders.filter((o) => !o.resolved).length;
+
+    // FIX: Calculate average processing time only for orders from the last 7 days
+    const recentCompletedOrders = orders.filter((o) => {
+      const receivedDate = new Date(o.receivedAt);
+      return (o.status === 'PROCESSING' || o.status === 'COMPLETED') 
+        && o.processedAt 
+        && receivedDate >= weekAgo;
+    });
+
+    let avgTime = 0;
+    if (recentCompletedOrders.length > 0) {
+      const validTimes: number[] = [];
+      
+      for (const o of recentCompletedOrders) {
+        const start = new Date(o.receivedAt).getTime();
+        const end = new Date(o.processedAt!).getTime();
+        const diffMs = end - start;
+        
+        // Only include positive, reasonable times (less than 24 hours)
+        if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
+          validTimes.push(diffMs);
+        }
+      }
+      
+      if (validTimes.length > 0) {
+        const totalTimeMs = validTimes.reduce((acc, t) => acc + t, 0);
+        avgTime = Math.round((totalTimeMs / validTimes.length) / 60000); // Minutes
+        // If less than 1 minute, show decimal
+        if (avgTime === 0 && totalTimeMs > 0) {
+          avgTime = parseFloat(((totalTimeMs / validTimes.length) / 60000).toFixed(1));
+        }
+      }
+    }
+
+    // Calculate success rate based on orders that completed vs errored in last 7 days
+    const erroredOrdersWeek = orders.filter((o) => {
+      const receivedDate = new Date(o.receivedAt);
+      return receivedDate >= weekAgo && o.status === 'ERROR';
+    }).length;
+
+    const successRate = ordersWeek > 0 
+      ? ((ordersWeek - erroredOrdersWeek - pendingDLQ) / ordersWeek) * 100 
+      : 100;
 
     return {
       ordersToday,
       ordersWeek,
-      errorRate: ordersWeek > 0 ? (pendingDLQ / ordersWeek) * 100 : 0,
+      errorRate: ordersWeek > 0 ? ((erroredOrdersWeek + pendingDLQ) / ordersWeek) * 100 : 0,
       pendingDLQ,
-      avgProcessingTime: 15, // TODO: Calculate from orders_log
-      successRate: ordersWeek > 0 ? ((ordersWeek - pendingDLQ) / ordersWeek) * 100 : 100,
+      avgProcessingTime: avgTime,
+      successRate: Math.max(0, Math.min(100, successRate)), // Clamp between 0-100
     };
   } catch (error) {
     console.error('Error fetching KPIs:', error);
@@ -353,7 +404,8 @@ export async function fetchOrdersLog(messageId?: string) {
       url = `${API_BASE_URL}/orders_log?message_id=eq.${messageId}&order=created_at.asc`;
     }
 
-    const response = await fetch(url);
+
+    const response = await bvgFetch(url);
     if (!response.ok) throw new Error('Failed to fetch orders log');
 
     const data = await response.json();
@@ -624,5 +676,402 @@ export async function approveOrderForFTP(
       success: false,
       message: error instanceof Error ? error.message : 'Error desconocido al aprobar pedido',
     };
+  }
+}
+
+// ========== SYSTEM HEALTH CHECK FUNCTIONS ==========
+
+/**
+ * Check n8n health status
+ * Note: Direct browser fetch to n8n will fail due to CORS.
+ * We infer n8n health from recent workflow activity in orders_log instead.
+ */
+export async function checkN8nHealth(): Promise<{
+  status: 'healthy' | 'degraded' | 'down' | 'unknown';
+  message: string;
+  responseTime?: number;
+  details?: any;
+}> {
+  try {
+    // Instead of direct fetch (blocked by CORS), check recent n8n activity via orders_log
+    const logs = await fetchOrdersLog();
+    const now = new Date();
+    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+
+    // Check for recent activity
+    const recentLogs = logs.filter((l) => new Date(l.createdAt) >= fiveMinutesAgo);
+    const lastHourLogs = logs.filter((l) => new Date(l.createdAt) >= oneHourAgo);
+    const recentErrors = lastHourLogs.filter((l) => l.status === 'ERROR');
+
+    if (recentLogs.length > 0) {
+      // n8n has been active in the last 5 minutes
+      const errorRate = lastHourLogs.length > 0 
+        ? (recentErrors.length / lastHourLogs.length) * 100 
+        : 0;
+
+      if (errorRate > 50) {
+        return {
+          status: 'degraded',
+          message: `n8n activo pero con alta tasa de errores (${errorRate.toFixed(0)}%)`,
+        };
+      }
+
+      return {
+        status: 'healthy',
+        message: `n8n activo (${recentLogs.length} eventos en últimos 5 min)`,
+      };
+    } else if (lastHourLogs.length > 0) {
+      // Activity in the last hour but not in last 5 minutes
+      return {
+        status: 'healthy',
+        message: `n8n sin actividad reciente (${lastHourLogs.length} eventos en última hora)`,
+      };
+    } else {
+      // No activity in the last hour - could be idle or down
+      return {
+        status: 'unknown',
+        message: 'Sin actividad en la última hora (puede estar inactivo)',
+      };
+    }
+  } catch (error) {
+    return {
+      status: 'unknown',
+      message: 'No se puede verificar estado de n8n',
+    };
+  }
+}
+
+/**
+ * Check PostgreSQL/PostgREST health
+ */
+export async function checkDatabaseHealth(): Promise<{
+  status: 'healthy' | 'degraded' | 'down';
+  message: string;
+  responseTime?: number;
+}> {
+  const startTime = Date.now();
+
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/ordenes_intake?select=id&limit=1`);
+    const responseTime = Date.now() - startTime;
+
+    if (response.ok) {
+      return {
+        status: 'healthy',
+        message: 'Base de datos operativa',
+        responseTime,
+      };
+    } else {
+      return {
+        status: 'degraded',
+        message: `Base de datos responde con estado ${response.status}`,
+        responseTime,
+      };
+    }
+  } catch (error) {
+    return {
+      status: 'down',
+      message: 'Base de datos no disponible',
+      responseTime: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Get comprehensive system health status
+ */
+export async function getSystemHealthStatus(): Promise<{
+  overall: 'healthy' | 'degraded' | 'down' | 'unknown';
+  services: {
+    n8n: { status: string; message: string; responseTime?: number };
+    database: { status: string; message: string; responseTime?: number };
+  };
+  lastCheck: string;
+}> {
+  const [n8nHealth, dbHealth] = await Promise.all([
+    checkN8nHealth(),
+    checkDatabaseHealth(),
+  ]);
+
+  // Determine overall status
+  let overall: 'healthy' | 'degraded' | 'down' | 'unknown' = 'healthy';
+  
+  // Database is critical - if down, system is down
+  if (dbHealth.status === 'down') {
+    overall = 'down';
+  } else if (n8nHealth.status === 'down') {
+    overall = 'down';
+  } else if (n8nHealth.status === 'degraded' || dbHealth.status === 'degraded') {
+    overall = 'degraded';
+  } else if (n8nHealth.status === 'unknown') {
+    // n8n unknown but DB healthy = likely just idle
+    overall = 'healthy';
+  }
+
+  return {
+    overall,
+    services: {
+      n8n: n8nHealth,
+      database: dbHealth,
+    },
+    lastCheck: new Date().toISOString(),
+  };
+}
+
+/**
+ * Get processing metrics from orders_log for more accurate stats
+ */
+export async function getProcessingMetrics(): Promise<{
+  avgTimeByStep: Record<string, number>;
+  successRateByStep: Record<string, number>;
+  totalProcessedToday: number;
+  totalErrorsToday: number;
+}> {
+  try {
+    const logs = await fetchOrdersLog();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const logsToday = logs.filter((l) => new Date(l.createdAt) >= today);
+
+    // Group by step
+    const stepStats: Record<string, { success: number; error: number; times: number[] }> = {};
+
+    for (const log of logsToday) {
+      const step = log.step || 'unknown';
+      if (!stepStats[step]) {
+        stepStats[step] = { success: 0, error: 0, times: [] };
+      }
+
+      if (log.status === 'OK' || log.status === 'SUCCESS') {
+        stepStats[step].success++;
+      } else if (log.status === 'ERROR') {
+        stepStats[step].error++;
+      }
+    }
+
+    // Calculate metrics
+    const avgTimeByStep: Record<string, number> = {};
+    const successRateByStep: Record<string, number> = {};
+
+    for (const [step, stats] of Object.entries(stepStats)) {
+      const total = stats.success + stats.error;
+      successRateByStep[step] = total > 0 ? (stats.success / total) * 100 : 100;
+    }
+
+    const totalProcessedToday = logsToday.filter((l) => l.status === 'OK' || l.status === 'SUCCESS').length;
+    const totalErrorsToday = logsToday.filter((l) => l.status === 'ERROR').length;
+
+    return {
+      avgTimeByStep,
+      successRateByStep,
+      totalProcessedToday,
+      totalErrorsToday,
+    };
+  } catch (error) {
+    console.error('Error fetching processing metrics:', error);
+    return {
+      avgTimeByStep: {},
+      successRateByStep: {},
+      totalProcessedToday: 0,
+      totalErrorsToday: 0,
+    };
+  }
+}
+
+// ========== LOCATION SELECTION FUNCTIONS ==========
+
+/**
+ * Search locations using similarity matching
+ * Uses the bvg.search_location_suggestions function if available,
+ * otherwise falls back to ILIKE search
+ */
+export async function searchLocations(query: string, limit: number = 15): Promise<Location[]> {
+  try {
+    if (!query || query.length < 2) return [];
+
+    // Try using the RPC function first (if migration was applied)
+    try {
+      const rpcResponse = await bvgFetch(
+        `${API_BASE_URL}/rpc/search_location_suggestions`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            p_search_text: query,
+            p_limit: limit,
+          }),
+        }
+      );
+
+      if (rpcResponse.ok) {
+        const data = await rpcResponse.json();
+        return data.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          address: row.address,
+          zipCode: row.zip_code,
+          city: row.city,
+          province: row.province,
+        }));
+      }
+    } catch {
+      // RPC function not available, use fallback
+    }
+
+    // Fallback: simple ILIKE search
+    const encoded = encodeURIComponent(`%${query}%`);
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_location_stg?or=(description.ilike.${encoded},location.ilike.${encoded})&limit=${limit}&order=description.asc`
+    );
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    return data.map((row: any) => ({
+      id: row.id,
+      code: row.code,
+      name: row.description || row.code || String(row.id),
+      address: row.address,
+      zipCode: row.zip_code,
+      city: row.location,
+      province: row.region,
+      country: row.country,
+    }));
+  } catch (error) {
+    console.error('Error searching locations:', error);
+    return [];
+  }
+}
+
+/**
+ * Set the location for an order line manually
+ */
+export async function setLineLocation(
+  lineId: string,
+  locationId: number,
+  setBy: string = 'frontend_user'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?id=eq.${lineId}`, {
+      method: 'PATCH',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        destination_id: locationId,
+        location_status: 'MANUALLY_SET',
+        location_set_by: setBy,
+        location_set_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Ubicación actualizada correctamente' };
+  } catch (error) {
+    console.error('Error setting line location:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al actualizar ubicación',
+    };
+  }
+}
+
+/**
+ * Create a location alias for future automatic matching
+ */
+export async function createLocationAlias(
+  aliasText: string,
+  locationId: number,
+  createdBy: string = 'frontend_user'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    // Normalize the alias (uppercase, trim)
+    const normalizedAlias = aliasText.trim().toUpperCase();
+
+    if (!normalizedAlias) {
+      return { success: false, message: 'El alias no puede estar vacío' };
+    }
+
+    const response = await bvgFetch(`${API_BASE_URL}/location_aliases`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        alias_norm: normalizedAlias,
+        location_id: locationId,
+        status: 'APPROVED',
+        source: 'MANUAL',
+        confidence_last: 1.0,
+        hits: 0,
+        created_by: createdBy,
+        created_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      // Check if it's a duplicate
+      if (response.status === 409) {
+        return { success: false, message: 'Este alias ya existe' };
+      }
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Alias creado correctamente' };
+  } catch (error) {
+    console.error('Error creating location alias:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al crear alias',
+    };
+  }
+}
+
+/**
+ * Get count of lines pending location selection for an order
+ */
+export async function getPendingLocationCount(intakeId: string): Promise<number> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?intake_id=eq.${intakeId}&destination_id=is.null&select=id`,
+      { headers: { 'Prefer': 'count=exact' } }
+    );
+
+    const countHeader = response.headers.get('content-range');
+    if (countHeader) {
+      const match = countHeader.match(/\/(\d+)/);
+      if (match) return parseInt(match[1], 10);
+    }
+
+    const data = await response.json();
+    return Array.isArray(data) ? data.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Get all pending location lines across all orders (for dashboard)
+ */
+export async function fetchPendingLocationLines(): Promise<any[]> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/pending_location_lines?order=order_received_at.desc&limit=50`
+    );
+
+    if (!response.ok) return [];
+    return response.json();
+  } catch (error) {
+    console.error('Error fetching pending location lines:', error);
+    return [];
   }
 }
