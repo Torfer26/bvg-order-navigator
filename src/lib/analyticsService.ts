@@ -1,0 +1,561 @@
+/**
+ * Analytics Service
+ * Provides data fetching functions for the Analytics dashboard
+ */
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+
+// Default headers for PostgREST to use bvg schema
+const DEFAULT_HEADERS = {
+  'Content-Type': 'application/json',
+  'Accept-Profile': 'bvg',
+  'Content-Profile': 'bvg',
+};
+
+// Helper for authenticated fetch
+async function bvgFetch(url: string, options: RequestInit = {}) {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...DEFAULT_HEADERS,
+      ...options.headers,
+    },
+  });
+}
+
+// ========== TYPES ==========
+
+export interface DateRange {
+  from: Date;
+  to: Date;
+}
+
+export interface AnalyticsKPIs {
+  totalOrders: number;
+  totalPallets: number;
+  totalDeliveries: number;
+  uniqueRegions: number;
+  pendingLocations: number;
+  avgOrdersPerDay: number;
+}
+
+export interface DailyTrend {
+  date: string;
+  orders: number;
+  pallets: number;
+  lines: number;
+}
+
+export interface ClientStats {
+  clientId: string;
+  clientName: string;
+  totalOrders: number;
+  totalPallets: number;
+  totalLines: number;
+  uniqueDestinations: number;
+}
+
+export interface RegionStats {
+  region: string;
+  deliveries: number;
+  pallets: number;
+  uniqueDestinations: number;
+}
+
+export interface DestinationStats {
+  destinationId: number;
+  destinationName: string;
+  city: string;
+  province: string;
+  deliveries: number;
+  pallets: number;
+}
+
+export interface StatusDistribution {
+  status: string;
+  count: number;
+}
+
+export interface HourlyPattern {
+  hour: number;
+  orders: number;
+}
+
+export interface WeekdayPattern {
+  dayOfWeek: number;
+  dayName: string;
+  orders: number;
+}
+
+export interface PeriodComparison {
+  current: AnalyticsKPIs;
+  previous: AnalyticsKPIs;
+  percentChange: {
+    orders: number;
+    pallets: number;
+    deliveries: number;
+  };
+}
+
+// ========== HELPER FUNCTIONS ==========
+
+function formatDateForQuery(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+function getDayName(dayOfWeek: number): string {
+  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  return days[dayOfWeek] || '';
+}
+
+// ========== API FUNCTIONS ==========
+
+/**
+ * Fetch main KPIs for the analytics dashboard
+ */
+export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<AnalyticsKPIs> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    // Fetch orders in date range
+    const ordersUrl = `${API_BASE_URL}/ordenes_intake?select=id,status,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`;
+    console.log('Fetching orders:', ordersUrl);
+    const ordersResponse = await bvgFetch(ordersUrl);
+    
+    if (!ordersResponse.ok) {
+      console.error('Orders fetch failed:', ordersResponse.status);
+      throw new Error('Failed to fetch orders');
+    }
+    
+    const orders = await ordersResponse.json();
+    console.log('Orders fetched:', orders.length);
+    
+    // Get order IDs for filtering lines
+    const orderIds = orders.map((o: any) => o.id);
+    
+    // Fetch all lines (simpler query, filter in JS)
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id,location_status,intake_id`
+    );
+    
+    let allLines = [];
+    if (linesResponse.ok) {
+      allLines = await linesResponse.json();
+    }
+    
+    // Filter lines by order IDs
+    const lines = allLines.filter((l: any) => orderIds.includes(l.intake_id));
+    
+    // Calculate KPIs
+    const totalOrders = orders.length;
+    const totalPallets = lines.reduce((sum: number, l: any) => sum + (Number(l.pallets) || 0), 0);
+    const totalDeliveries = lines.filter((l: any) => l.destination_id).length;
+    const uniqueRegions = new Set(lines.filter((l: any) => l.destination_id).map((l: any) => l.destination_id)).size;
+    const pendingLocations = lines.filter((l: any) => l.location_status === 'PENDING_LOCATION').length;
+    
+    // Calculate days in range
+    const daysDiff = Math.max(1, Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24)));
+    const avgOrdersPerDay = Math.round((totalOrders / daysDiff) * 10) / 10;
+    
+    return {
+      totalOrders,
+      totalPallets: Math.round(totalPallets),
+      totalDeliveries,
+      uniqueRegions,
+      pendingLocations,
+      avgOrdersPerDay,
+    };
+  } catch (error) {
+    console.error('Error fetching analytics KPIs:', error);
+    return {
+      totalOrders: 0,
+      totalPallets: 0,
+      totalDeliveries: 0,
+      uniqueRegions: 0,
+      pendingLocations: 0,
+      avgOrdersPerDay: 0,
+    };
+  }
+}
+
+/**
+ * Fetch daily trend data for line chart
+ */
+export async function fetchDailyTrend(dateRange: DateRange): Promise<DailyTrend[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    // Fetch all orders in range
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=id,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
+    );
+    
+    if (!ordersResponse.ok) {
+      throw new Error('Failed to fetch orders');
+    }
+    
+    const orders = await ordersResponse.json();
+    const orderIds = orders.map((o: any) => o.id);
+    
+    // Fetch all lines
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,intake_id`
+    );
+    const allLines = linesResponse.ok ? await linesResponse.json() : [];
+    
+    // Create a map of intake_id -> lines
+    const linesByIntake = new Map<string, any[]>();
+    allLines.forEach((line: any) => {
+      const intakeId = String(line.intake_id);
+      if (!linesByIntake.has(intakeId)) {
+        linesByIntake.set(intakeId, []);
+      }
+      linesByIntake.get(intakeId)!.push(line);
+    });
+    
+    // Group orders by date
+    const dailyMap = new Map<string, { orders: number; pallets: number; lines: number }>();
+    
+    // Initialize all dates in range
+    const currentDate = new Date(dateRange.from);
+    while (currentDate <= dateRange.to) {
+      const dateKey = formatDateForQuery(currentDate);
+      dailyMap.set(dateKey, { orders: 0, pallets: 0, lines: 0 });
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    // Aggregate data
+    orders.forEach((order: any) => {
+      const dateKey = order.created_at.split('T')[0];
+      if (dailyMap.has(dateKey)) {
+        const dayData = dailyMap.get(dateKey)!;
+        dayData.orders += 1;
+        
+        // Get lines for this order
+        const orderLines = linesByIntake.get(String(order.id)) || [];
+        dayData.lines += orderLines.length;
+        dayData.pallets += orderLines.reduce((sum: number, l: any) => sum + (Number(l.pallets) || 0), 0);
+      }
+    });
+    
+    // Convert to array and sort
+    return Array.from(dailyMap.entries())
+      .map(([date, data]) => ({
+        date,
+        orders: data.orders,
+        pallets: Math.round(data.pallets),
+        lines: data.lines,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (error) {
+    console.error('Error fetching daily trend:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch status distribution for donut chart
+ */
+export async function fetchStatusDistribution(dateRange: DateRange): Promise<StatusDistribution[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=status&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch status distribution');
+    }
+    
+    const orders = await response.json();
+    
+    // Count by status
+    const statusMap = new Map<string, number>();
+    orders.forEach((order: any) => {
+      const status = order.status || 'UNKNOWN';
+      statusMap.set(status, (statusMap.get(status) || 0) + 1);
+    });
+    
+    return Array.from(statusMap.entries())
+      .map(([status, count]) => ({ status, count }))
+      .sort((a, b) => b.count - a.count);
+  } catch (error) {
+    console.error('Error fetching status distribution:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch client statistics
+ */
+export async function fetchClientStats(dateRange: DateRange): Promise<ClientStats[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    // Fetch orders with client info
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=id,client_id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
+    );
+    
+    if (!ordersResponse.ok) {
+      throw new Error('Failed to fetch orders');
+    }
+    
+    const orders = await ordersResponse.json();
+    
+    // Fetch clients
+    const clientsResponse = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description`);
+    const clients = clientsResponse.ok ? await clientsResponse.json() : [];
+    const clientMap = new Map(clients.map((c: any) => [String(c.id), c.description]));
+    
+    // Fetch lines
+    const linesResponse = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?select=intake_id,pallets,destination_id`);
+    const lines = linesResponse.ok ? await linesResponse.json() : [];
+    
+    // Create intake -> lines map
+    const linesByIntake = new Map<string, any[]>();
+    lines.forEach((line: any) => {
+      const key = String(line.intake_id);
+      if (!linesByIntake.has(key)) linesByIntake.set(key, []);
+      linesByIntake.get(key)!.push(line);
+    });
+    
+    // Aggregate by client
+    const clientStats = new Map<string, ClientStats>();
+    
+    orders.forEach((order: any) => {
+      const clientId = String(order.client_id || 'unknown');
+      
+      if (!clientStats.has(clientId)) {
+        clientStats.set(clientId, {
+          clientId,
+          clientName: clientMap.get(clientId) || `Cliente ${clientId}`,
+          totalOrders: 0,
+          totalPallets: 0,
+          totalLines: 0,
+          uniqueDestinations: 0,
+        });
+      }
+      
+      const stats = clientStats.get(clientId)!;
+      stats.totalOrders += 1;
+      
+      const orderLines = linesByIntake.get(String(order.id)) || [];
+      stats.totalLines += orderLines.length;
+      stats.totalPallets += orderLines.reduce((sum: number, l: any) => sum + (Number(l.pallets) || 0), 0);
+    });
+    
+    // Calculate unique destinations per client (simplified)
+    return Array.from(clientStats.values())
+      .map(s => ({ ...s, totalPallets: Math.round(s.totalPallets) }))
+      .sort((a, b) => b.totalOrders - a.totalOrders);
+  } catch (error) {
+    console.error('Error fetching client stats:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch region statistics
+ */
+export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStats[]> {
+  try {
+    // Fetch lines with destination info
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id&destination_id=not.is.null`
+    );
+    const lines = await linesResponse.json();
+    
+    // Fetch locations
+    const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,region`);
+    const locations = await locationsResponse.json();
+    const locationRegion = new Map(locations.map((l: any) => [String(l.id), l.region]));
+    
+    // Aggregate by region
+    const regionStats = new Map<string, RegionStats>();
+    
+    lines.forEach((line: any) => {
+      const region = locationRegion.get(String(line.destination_id)) || 'Sin región';
+      
+      if (!regionStats.has(region)) {
+        regionStats.set(region, {
+          region,
+          deliveries: 0,
+          pallets: 0,
+          uniqueDestinations: 0,
+        });
+      }
+      
+      const stats = regionStats.get(region)!;
+      stats.deliveries += 1;
+      stats.pallets += Number(line.pallets) || 0;
+    });
+    
+    return Array.from(regionStats.values())
+      .map(s => ({ ...s, pallets: Math.round(s.pallets) }))
+      .sort((a, b) => b.deliveries - a.deliveries);
+  } catch (error) {
+    console.error('Error fetching region stats:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch top destinations
+ */
+export async function fetchTopDestinations(dateRange: DateRange, limit: number = 10): Promise<DestinationStats[]> {
+  try {
+    // Fetch lines with destination
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id&destination_id=not.is.null`
+    );
+    const lines = await linesResponse.json();
+    
+    // Fetch locations
+    const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description,location,region`);
+    const locations = await locationsResponse.json();
+    const locationMap = new Map(locations.map((l: any) => [String(l.id), l]));
+    
+    // Aggregate by destination
+    const destStats = new Map<string, DestinationStats>();
+    
+    lines.forEach((line: any) => {
+      const destId = String(line.destination_id);
+      const loc = locationMap.get(destId);
+      
+      if (!destStats.has(destId)) {
+        destStats.set(destId, {
+          destinationId: Number(destId),
+          destinationName: loc?.description || `Destino ${destId}`,
+          city: loc?.location || '',
+          province: loc?.region || '',
+          deliveries: 0,
+          pallets: 0,
+        });
+      }
+      
+      const stats = destStats.get(destId)!;
+      stats.deliveries += 1;
+      stats.pallets += Number(line.pallets) || 0;
+    });
+    
+    return Array.from(destStats.values())
+      .map(s => ({ ...s, pallets: Math.round(s.pallets) }))
+      .sort((a, b) => b.deliveries - a.deliveries)
+      .slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching top destinations:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch hourly pattern
+ */
+export async function fetchHourlyPattern(dateRange: DateRange): Promise<HourlyPattern[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch hourly pattern');
+    }
+    
+    const orders = await response.json();
+    
+    // Count by hour
+    const hourMap = new Map<number, number>();
+    for (let i = 0; i < 24; i++) hourMap.set(i, 0);
+    
+    orders.forEach((order: any) => {
+      const hour = new Date(order.created_at).getHours();
+      hourMap.set(hour, (hourMap.get(hour) || 0) + 1);
+    });
+    
+    return Array.from(hourMap.entries())
+      .map(([hour, orders]) => ({ hour, orders }))
+      .sort((a, b) => a.hour - b.hour);
+  } catch (error) {
+    console.error('Error fetching hourly pattern:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch weekday pattern
+ */
+export async function fetchWeekdayPattern(dateRange: DateRange): Promise<WeekdayPattern[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+  
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
+    );
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch weekday pattern');
+    }
+    
+    const orders = await response.json();
+    
+    // Count by day of week
+    const dayMap = new Map<number, number>();
+    for (let i = 0; i < 7; i++) dayMap.set(i, 0);
+    
+    orders.forEach((order: any) => {
+      const dow = new Date(order.created_at).getDay();
+      dayMap.set(dow, (dayMap.get(dow) || 0) + 1);
+    });
+    
+    return Array.from(dayMap.entries())
+      .map(([dayOfWeek, orders]) => ({
+        dayOfWeek,
+        dayName: getDayName(dayOfWeek),
+        orders,
+      }))
+      .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+  } catch (error) {
+    console.error('Error fetching weekday pattern:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch period comparison (current vs previous)
+ */
+export async function fetchPeriodComparison(dateRange: DateRange): Promise<PeriodComparison> {
+  // Calculate previous period (same duration, ending when current starts)
+  const durationMs = dateRange.to.getTime() - dateRange.from.getTime();
+  const previousFrom = new Date(dateRange.from.getTime() - durationMs);
+  const previousTo = new Date(dateRange.from.getTime() - 1);
+  
+  const [current, previous] = await Promise.all([
+    fetchAnalyticsKPIs(dateRange),
+    fetchAnalyticsKPIs({ from: previousFrom, to: previousTo }),
+  ]);
+  
+  const calcChange = (curr: number, prev: number): number => {
+    if (prev === 0) return curr > 0 ? 100 : 0;
+    return Math.round(((curr - prev) / prev) * 100);
+  };
+  
+  return {
+    current,
+    previous,
+    percentChange: {
+      orders: calcChange(current.totalOrders, previous.totalOrders),
+      pallets: calcChange(current.totalPallets, previous.totalPallets),
+      deliveries: calcChange(current.totalDeliveries, previous.totalDeliveries),
+    },
+  };
+}

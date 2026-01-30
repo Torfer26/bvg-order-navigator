@@ -13,6 +13,7 @@ import Dashboard from "@/pages/Dashboard";
 import Orders from "@/pages/Orders";
 import OrderDetail from "@/pages/OrderDetail";
 import DLQ from "@/pages/DLQ";
+import Analytics from "@/pages/Analytics";
 import Users from "@/pages/Users";
 import Clients from "@/pages/masters/Clients";
 import Remitentes from "@/pages/masters/Remitentes";
@@ -41,6 +42,7 @@ const App = () => (
                 <Route path="orders/:id" element={<OrderDetail />} />
                 <Route path="dlq" element={<DLQ />} />
                 <Route path="dlq/:id" element={<DLQ />} />
+                <Route path="analytics" element={<Analytics />} />
                 <Route path="monitoring/emails" element={<EmailMonitoring />} />
                 <Route path="monitoring/logs" element={<LogsAndTraceability />} />
                 <Route path="users" element={<Users />} />

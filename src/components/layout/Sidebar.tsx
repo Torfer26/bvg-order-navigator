@@ -12,7 +12,8 @@ import {
   Package,
   Mail,
   GitBranch,
-  Activity
+  Activity,
+  BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -35,6 +36,7 @@ const navItems: NavItem[] = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/orders', icon: FileText, label: 'Pedidos' },
   { to: '/dlq', icon: AlertTriangle, label: 'DLQ' },
+  { to: '/analytics', icon: BarChart3, label: 'Analítica', section: 'analytics' },
   { to: '/monitoring/emails', icon: Mail, label: 'Emails', section: 'monitoring' },
   { to: '/monitoring/logs', icon: GitBranch, label: 'Logs & Trazabilidad', section: 'monitoring' },
   { to: '/masters/clients', icon: Building2, label: 'Clientes', roles: ['admin'], section: 'masters' },
@@ -87,6 +89,31 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {/* Main Navigation */}
         <div className="space-y-1">
           {filteredItems.filter((item) => !item.section).map((item) => {
+            const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+            const Icon = item.icon;
+            
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={cn(
+                  'nav-item',
+                  isActive ? 'nav-item-active' : 'nav-item-inactive',
+                  collapsed && 'justify-center px-2'
+                )}
+                title={collapsed ? item.label : undefined}
+              >
+                <Icon className="h-5 w-5 shrink-0" />
+                {!collapsed && <span>{item.label}</span>}
+              </NavLink>
+            );
+          })}
+        </div>
+        
+        {/* Analytics Section */}
+        {!collapsed && <div className="mt-6 mb-2 px-3 text-xs font-semibold text-muted-foreground">ANALÍTICA</div>}
+        <div className="space-y-1">
+          {filteredItems.filter((item) => item.section === 'analytics').map((item) => {
             const isActive = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
             const Icon = item.icon;
             
