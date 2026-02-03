@@ -308,10 +308,21 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
     
     const orders = await ordersResponse.json();
     
-    // Fetch clients
+    // Fetch clients from customer_stg (id is TEXT with 5-digit padding like "00006")
     const clientsResponse = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description`);
     const clients = clientsResponse.ok ? await clientsResponse.json() : [];
-    const clientMap = new Map(clients.map((c: any) => [String(c.id), c.description]));
+    
+    // Build client map using the standard padded format (e.g. "00006")
+    const clientMap = new Map<string, string>();
+    clients.forEach((c: any) => {
+      const clientId = String(c.id); // Already padded: "00006"
+      const clientName = c.description || null;
+      if (clientName) {
+        clientMap.set(clientId, clientName);
+      }
+    });
+    
+    console.log('Client map loaded:', clientMap.size, 'clients');
     
     // Fetch lines
     const linesResponse = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?select=intake_id,pallets,destination_id`);
@@ -329,12 +340,18 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
     const clientStats = new Map<string, ClientStats>();
     
     orders.forEach((order: any) => {
-      const clientId = String(order.client_id || 'unknown');
+      // Convert client_id to padded format (5 digits) to match customer_stg.id
+      // e.g. "6" -> "00006", "12" -> "00012"
+      const rawClientId = order.client_id;
+      const paddedClientId = rawClientId ? String(rawClientId).padStart(5, '0') : 'unknown';
       
-      if (!clientStats.has(clientId)) {
-        clientStats.set(clientId, {
-          clientId,
-          clientName: clientMap.get(clientId) || `Cliente ${clientId}`,
+      if (!clientStats.has(paddedClientId)) {
+        // Get client name from map using the padded ID
+        const clientName = clientMap.get(paddedClientId) || `Cliente ${paddedClientId}`;
+        
+        clientStats.set(paddedClientId, {
+          clientId: paddedClientId,
+          clientName,
           totalOrders: 0,
           totalPallets: 0,
           totalLines: 0,
@@ -342,7 +359,7 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
         });
       }
       
-      const stats = clientStats.get(clientId)!;
+      const stats = clientStats.get(paddedClientId)!;
       stats.totalOrders += 1;
       
       const orderLines = linesByIntake.get(String(order.id)) || [];

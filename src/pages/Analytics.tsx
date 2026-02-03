@@ -168,35 +168,53 @@ function DonutChart({
 }
 
 // ============================================================================
-// AREA CHART COMPONENT - Smooth area visualization
+// AREA CHART COMPONENT - Smooth area visualization with proper scaling
 // ============================================================================
 function AreaChart({ 
   data, 
-  height = 200,
+  height = 280,
   showLabels = true 
 }: { 
   data: DailyTrend[]; 
   height?: number;
   showLabels?: boolean;
 }) {
-  if (data.length < 2) {
+  // Handle empty or insufficient data
+  if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted-foreground">
-        No hay suficientes datos para mostrar
+        No hay datos para el período seleccionado
+      </div>
+    );
+  }
+  
+  if (data.length === 1) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+        <Package className="h-8 w-8 mb-2 text-blue-500" />
+        <p className="font-semibold text-foreground">{data[0].orders} pedidos</p>
+        <p className="text-sm">{format(new Date(data[0].date), 'dd MMMM yyyy', { locale: es })}</p>
       </div>
     );
   }
   
   const maxOrders = Math.max(...data.map(d => d.orders), 1);
-  const padding = { top: 20, right: 20, bottom: showLabels ? 40 : 20, left: 20 };
-  const chartWidth = 100; // percentage
+  const minOrders = Math.min(...data.map(d => d.orders));
+  const padding = { top: 50, right: 10, bottom: showLabels ? 50 : 20, left: 10 };
   const chartHeight = height - padding.top - padding.bottom;
+  const chartWidth = 100; // Use viewBox units
   
-  // Generate smooth curve using cardinal spline
+  // Calculate Y position with proper scaling
+  const getY = (value: number) => {
+    if (maxOrders === minOrders) return chartHeight / 2 + padding.top;
+    return chartHeight - ((value - minOrders) / (maxOrders - minOrders)) * chartHeight + padding.top;
+  };
+  
+  // Generate smooth curve path
   const getPath = () => {
     const points = data.map((d, i) => ({
-      x: (i / (data.length - 1)) * 100,
-      y: chartHeight - (d.orders / maxOrders) * chartHeight + padding.top
+      x: data.length === 1 ? 50 : (i / (data.length - 1)) * chartWidth,
+      y: getY(d.orders)
     }));
     
     if (points.length < 2) return '';
@@ -209,10 +227,12 @@ function AreaChart({
       const p2 = points[i + 1];
       const p3 = points[i + 2] || p2;
       
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      // Tension factor for smoothness
+      const tension = 0.3;
+      const cp1x = p1.x + (p2.x - p0.x) * tension;
+      const cp1y = p1.y + (p2.y - p0.y) * tension;
+      const cp2x = p2.x - (p3.x - p1.x) * tension;
+      const cp2y = p2.y - (p3.y - p1.y) * tension;
       
       path += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
     }
@@ -221,19 +241,35 @@ function AreaChart({
   };
   
   const linePath = getPath();
-  const areaPath = `${linePath} L 100,${chartHeight + padding.top} L 0,${chartHeight + padding.top} Z`;
+  const areaPath = `${linePath} L ${chartWidth},${chartHeight + padding.top} L 0,${chartHeight + padding.top} Z`;
   
   // Calculate statistics
-  const avgOrders = Math.round(data.reduce((sum, d) => sum + d.orders, 0) / data.length);
+  const totalOrders = data.reduce((sum, d) => sum + d.orders, 0);
+  const avgOrders = Math.round(totalOrders / data.length);
+  const daysWithData = data.filter(d => d.orders > 0).length;
   const trend = data.length > 1 ? data[data.length - 1].orders - data[0].orders : 0;
+  
+  // Determine label positions - show more labels for short periods
+  const getLabelIndices = () => {
+    if (data.length <= 7) return data.map((_, i) => i); // Show all
+    if (data.length <= 14) return data.map((_, i) => i).filter(i => i % 2 === 0 || i === data.length - 1);
+    const step = Math.ceil(data.length / 6);
+    return data.map((_, i) => i).filter(i => i === 0 || i === data.length - 1 || i % step === 0);
+  };
+  
+  const labelIndices = getLabelIndices();
   
   return (
     <div className="relative w-full" style={{ height }}>
-      <svg width="100%" height={height} preserveAspectRatio="none" className="overflow-visible">
+      <svg 
+        viewBox={`0 0 ${chartWidth} ${height}`} 
+        preserveAspectRatio="none"
+        className="w-full h-full overflow-visible"
+      >
         <defs>
           <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.4" />
-            <stop offset="50%" stopColor="#3b82f6" stopOpacity="0.1" />
+            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
+            <stop offset="60%" stopColor="#3b82f6" stopOpacity="0.1" />
             <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
           </linearGradient>
           <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -241,26 +277,19 @@ function AreaChart({
             <stop offset="50%" stopColor="#3b82f6" />
             <stop offset="100%" stopColor="#2563eb" />
           </linearGradient>
-          <filter id="glow">
-            <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
-            <feMerge>
-              <feMergeNode in="coloredBlur"/>
-              <feMergeNode in="SourceGraphic"/>
-            </feMerge>
-          </filter>
         </defs>
         
-        {/* Grid lines */}
-        {[0, 25, 50, 75, 100].map((pct) => (
+        {/* Horizontal grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((pct) => (
           <line
             key={pct}
-            x1="0%"
-            y1={padding.top + chartHeight * (1 - pct / 100)}
-            x2="100%"
-            y2={padding.top + chartHeight * (1 - pct / 100)}
+            x1="0"
+            y1={padding.top + chartHeight * (1 - pct)}
+            x2={chartWidth}
+            y2={padding.top + chartHeight * (1 - pct)}
             stroke="currentColor"
-            strokeOpacity="0.05"
-            strokeDasharray="4 4"
+            strokeOpacity="0.06"
+            strokeDasharray="2 2"
           />
         ))}
         
@@ -268,7 +297,6 @@ function AreaChart({
         <path
           d={areaPath}
           fill="url(#areaGradient)"
-          className="transition-all duration-500"
         />
         
         {/* Line */}
@@ -276,92 +304,107 @@ function AreaChart({
           d={linePath}
           fill="none"
           stroke="url(#lineGradient)"
-          strokeWidth="3"
+          strokeWidth="0.8"
           strokeLinecap="round"
           strokeLinejoin="round"
-          filter="url(#glow)"
-          className="transition-all duration-500"
         />
         
-        {/* Data points */}
+        {/* Data points - only show on hover via CSS */}
         {data.map((d, i) => {
-          const x = (i / (data.length - 1)) * 100;
-          const y = chartHeight - (d.orders / maxOrders) * chartHeight + padding.top;
+          const x = data.length === 1 ? 50 : (i / (data.length - 1)) * chartWidth;
+          const y = getY(d.orders);
           
           return (
-            <g key={d.date} className="group cursor-pointer">
-              {/* Hover area */}
-              <rect
-                x={`${x - 100 / data.length / 2}%`}
-                y={padding.top}
-                width={`${100 / data.length}%`}
-                height={chartHeight}
-                fill="transparent"
-              />
-              {/* Point */}
-              <circle
-                cx={`${x}%`}
-                cy={y}
-                r="4"
-                fill="white"
-                stroke="#3b82f6"
-                strokeWidth="2"
-                className="opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-              />
-              {/* Tooltip */}
-              <g className="opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                <rect
-                  x={`${Math.max(5, Math.min(x - 12, 75))}%`}
-                  y={y - 55}
-                  width="80"
-                  height="45"
-                  rx="8"
-                  fill="rgb(17, 24, 39)"
-                  className="drop-shadow-lg"
-                />
-                <text
-                  x={`${Math.max(5, Math.min(x - 12, 75)) + 4}%`}
-                  y={y - 38}
-                  fill="#93c5fd"
-                  fontSize="10"
-                  fontWeight="600"
-                >
-                  {format(new Date(d.date), 'dd MMM', { locale: es })}
-                </text>
-                <text
-                  x={`${Math.max(5, Math.min(x - 12, 75)) + 4}%`}
-                  y={y - 22}
-                  fill="white"
-                  fontSize="12"
-                  fontWeight="700"
-                >
-                  {d.orders} pedidos
-                </text>
-              </g>
-            </g>
+            <circle
+              key={d.date}
+              cx={x}
+              cy={y}
+              r="1.2"
+              fill="white"
+              stroke="#3b82f6"
+              strokeWidth="0.5"
+              className="opacity-0 hover:opacity-100 transition-opacity"
+            />
           );
         })}
       </svg>
       
-      {/* X-axis labels */}
+      {/* X-axis labels - positioned absolutely for better control */}
       {showLabels && (
-        <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 text-[10px] text-muted-foreground">
-          {data.filter((_, i) => i === 0 || i === data.length - 1 || i % Math.ceil(data.length / 5) === 0)
-            .map((d) => (
-              <span key={d.date}>{format(new Date(d.date), 'dd/MM', { locale: es })}</span>
-            ))}
+        <div className="absolute bottom-2 left-0 right-0 flex justify-between px-1">
+          {data.map((d, i) => {
+            if (!labelIndices.includes(i)) return null;
+            const leftPct = data.length === 1 ? 50 : (i / (data.length - 1)) * 100;
+            return (
+              <span 
+                key={d.date}
+                className="text-[10px] text-muted-foreground whitespace-nowrap"
+                style={{ 
+                  position: 'absolute', 
+                  left: `${leftPct}%`,
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                {format(new Date(d.date), 'dd/MM', { locale: es })}
+              </span>
+            );
+          })}
         </div>
       )}
       
+      {/* Interactive overlay with tooltips */}
+      <div className="absolute inset-0" style={{ top: padding.top, bottom: padding.bottom }}>
+        <div className="relative w-full h-full flex">
+          {data.map((d, i) => {
+            const leftPct = data.length === 1 ? 50 : (i / (data.length - 1)) * 100;
+            return (
+              <div 
+                key={d.date}
+                className="flex-1 group relative"
+                style={{ minWidth: 0 }}
+              >
+                {/* Tooltip */}
+                <div 
+                  className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none"
+                  style={{ 
+                    left: '50%', 
+                    transform: 'translateX(-50%)'
+                  }}
+                >
+                  <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
+                    <div className="font-semibold text-blue-300">
+                      {format(new Date(d.date), 'EEEE, d MMM', { locale: es })}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Package className="h-3 w-3 text-blue-400" />
+                      <span className="font-bold">{d.orders}</span>
+                      <span className="text-gray-400">pedidos</span>
+                    </div>
+                    {d.pallets > 0 && (
+                      <div className="flex items-center gap-2 text-gray-300">
+                        <Truck className="h-3 w-3 text-emerald-400" />
+                        <span>{d.pallets} pallets</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Hover indicator line */}
+                <div className="absolute top-0 bottom-0 left-1/2 w-px bg-blue-400/50 opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      
       {/* Floating stats */}
-      <div className="absolute top-2 right-2 flex items-center gap-3">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/80 backdrop-blur-sm border text-xs">
+      <div className="absolute top-2 right-2 flex items-center gap-2 flex-wrap justify-end">
+        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm border text-xs shadow-sm">
           <Activity className="h-3 w-3 text-blue-500" />
           <span className="text-muted-foreground">Promedio:</span>
           <span className="font-semibold">{avgOrders}</span>
         </div>
         <div className={cn(
-          "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium",
+          "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium shadow-sm",
           trend > 0 ? "bg-emerald-100 text-emerald-700" : 
           trend < 0 ? "bg-red-100 text-red-700" : 
           "bg-gray-100 text-gray-600"

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -6,31 +6,82 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, AlertCircle, Lock, Mail } from 'lucide-react';
+import { Loader2, AlertCircle, Lock, Mail, Shield, ExternalLink } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/shared/LanguageSwitcher';
+import { isCloudflareAccessEnabled } from '@/lib/cloudflareAccess';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { login, isAuthenticated, isLoading: authLoading, authMode } = useAuth();
   const { t } = useLanguage();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingCfAccess, setIsCheckingCfAccess] = useState(true);
 
-  if (authLoading) {
+  // Check if we should show CF Access redirect
+  useEffect(() => {
+    const checkAuth = async () => {
+      // Give a moment for CF Access to initialize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      setIsCheckingCfAccess(false);
+    };
+    checkAuth();
+  }, []);
+
+  // Loading state
+  if (authLoading || isCheckingCfAccess) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        <div className="text-center">
+          <div className="h-10 w-10 mx-auto animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          <p className="mt-4 text-muted-foreground">
+            {isCloudflareAccessEnabled() ? 'Verificando autenticación...' : 'Cargando...'}
+          </p>
+        </div>
       </div>
     );
   }
 
+  // Already authenticated
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
   }
 
+  // In Cloudflare mode but not authenticated - show redirect message
+  if (authMode === 'cloudflare' && isCloudflareAccessEnabled()) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="w-full max-w-md text-center">
+          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <Shield className="h-8 w-8 text-primary" />
+          </div>
+          
+          <h1 className="text-2xl font-semibold mb-2">Acceso Protegido</h1>
+          <p className="text-muted-foreground mb-6">
+            Esta aplicación está protegida por Cloudflare Access.
+            Serás redirigido al portal de autenticación.
+          </p>
+          
+          <Button 
+            onClick={() => window.location.reload()} 
+            className="w-full"
+          >
+            <ExternalLink className="mr-2 h-4 w-4" />
+            Iniciar Sesión con SSO
+          </Button>
+          
+          <p className="mt-6 text-xs text-muted-foreground">
+            Protegido por Cloudflare Zero Trust
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Local development login form
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -93,6 +144,17 @@ export default function Login() {
                 </div>
                 <span className="text-xl font-semibold">BVG Ops Console</span>
               </div>
+            </div>
+
+            {/* Development mode indicator */}
+            <div className="mb-6 rounded-lg border border-yellow-500/50 bg-yellow-500/10 p-3">
+              <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+                <AlertCircle className="h-4 w-4" />
+                <span className="text-sm font-medium">Modo Desarrollo Local</span>
+              </div>
+              <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-500">
+                En producción, la autenticación se gestiona mediante Cloudflare Access (SSO).
+              </p>
             </div>
 
             <div className="mb-8">
