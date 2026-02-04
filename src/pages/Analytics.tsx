@@ -1,13 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   BarChart3, 
   Package, 
   MapPin, 
-  Calendar,
   Loader2,
-  ArrowUpRight,
-  ArrowDownRight,
-  Minus,
   Users,
   Truck,
   AlertCircle,
@@ -15,10 +11,9 @@ import {
   Sparkles,
   Activity,
   Target,
-  Zap,
   Globe2,
   ChevronRight,
-  Clock,
+  AlertTriangle,
   RefreshCw
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
@@ -26,10 +21,15 @@ import { es } from 'date-fns/locale';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Calendar as CalendarComponent } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { Link } from 'react-router-dom';
+
+// New enhanced components
+import { EnhancedMetricCard, KPI_DEFINITIONS } from '@/components/shared/EnhancedMetricCard';
+import { AnalyticsFilterBar, type AnalyticsFilters, type PeriodPreset } from '@/components/shared/AnalyticsFilterBar';
+import { StatusBarChart } from '@/components/shared/StatusBarChart';
+
+// Services
 import {
   fetchAnalyticsKPIs,
   fetchDailyTrend,
@@ -37,6 +37,11 @@ import {
   fetchClientStats,
   fetchRegionStats,
   fetchPeriodComparison,
+  fetchHourlyPattern,
+  fetchWeekdayPattern,
+  fetchTopDestinations,
+  fetchClientsForFilter,
+  fetchRegionsForFilter,
   type DateRange,
   type AnalyticsKPIs,
   type DailyTrend,
@@ -44,134 +49,17 @@ import {
   type ClientStats,
   type RegionStats,
   type PeriodComparison,
+  type HourlyPattern,
+  type WeekdayPattern,
+  type DestinationStats,
+  type FilterOption,
 } from '@/lib/analyticsService';
-
-// Modern status colors - 2026 palette
-const STATUS_CONFIG: Record<string, { color: string; gradient: string; label: string }> = {
-  COMPLETED: { color: '#10b981', gradient: 'from-emerald-400 to-teal-500', label: 'Completado' },
-  PROCESSING: { color: '#3b82f6', gradient: 'from-blue-400 to-indigo-500', label: 'Procesando' },
-  VALIDATING: { color: '#f59e0b', gradient: 'from-amber-400 to-orange-500', label: 'Validando' },
-  RECEIVED: { color: '#8b5cf6', gradient: 'from-violet-400 to-purple-500', label: 'Recibido' },
-  IN_REVIEW: { color: '#ec4899', gradient: 'from-pink-400 to-rose-500', label: 'En revisión' },
-  APPROVED: { color: '#14b8a6', gradient: 'from-teal-400 to-cyan-500', label: 'Aprobado' },
-  AWAITING_INFO: { color: '#f97316', gradient: 'from-orange-400 to-red-500', label: 'Esperando info' },
-  REJECTED: { color: '#ef4444', gradient: 'from-red-400 to-rose-600', label: 'Rechazado' },
-  ERROR: { color: '#dc2626', gradient: 'from-red-500 to-red-700', label: 'Error' },
-};
-
-type PeriodPreset = '7d' | '30d' | '90d' | 'custom';
-
-// ============================================================================
-// SPARKLINE COMPONENT - Mini trend visualization
-// ============================================================================
-function Sparkline({ data, color = '#3b82f6', height = 32 }: { data: number[]; color?: string; height?: number }) {
-  if (data.length < 2) return null;
-  
-  const max = Math.max(...data, 1);
-  const min = Math.min(...data, 0);
-  const range = max - min || 1;
-  
-  const points = data.map((value, i) => {
-    const x = (i / (data.length - 1)) * 100;
-    const y = height - ((value - min) / range) * (height - 4);
-    return `${x},${y}`;
-  }).join(' ');
-  
-  const areaPoints = `0,${height} ${points} 100,${height}`;
-  
-  return (
-    <svg width="100%" height={height} className="overflow-visible">
-      <defs>
-        <linearGradient id={`sparkline-gradient-${color.replace('#', '')}`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon 
-        points={areaPoints} 
-        fill={`url(#sparkline-gradient-${color.replace('#', '')})`}
-      />
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {/* Last point highlight */}
-      <circle 
-        cx="100" 
-        cy={height - ((data[data.length - 1] - min) / range) * (height - 4)}
-        r="3"
-        fill={color}
-      />
-    </svg>
-  );
-}
-
-// ============================================================================
-// DONUT CHART COMPONENT - Modern circular visualization
-// ============================================================================
-function DonutChart({ 
-  data, 
-  size = 180,
-  strokeWidth = 24 
-}: { 
-  data: { label: string; value: number; color: string }[]; 
-  size?: number;
-  strokeWidth?: number;
-}) {
-  const total = data.reduce((sum, item) => sum + item.value, 0);
-  if (total === 0) return null;
-  
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  let currentOffset = 0;
-  
-  return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="transform -rotate-90">
-        {data.map((item, index) => {
-          const percentage = item.value / total;
-          const strokeDasharray = `${percentage * circumference} ${circumference}`;
-          const strokeDashoffset = -currentOffset * circumference;
-          currentOffset += percentage;
-          
-          return (
-            <circle
-              key={index}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={item.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={strokeDasharray}
-              strokeDashoffset={strokeDashoffset}
-              strokeLinecap="round"
-              className="transition-all duration-700 ease-out"
-              style={{ 
-                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))',
-              }}
-            />
-          );
-        })}
-      </svg>
-      {/* Center content */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold">{total}</span>
-        <span className="text-xs text-muted-foreground">Total</span>
-      </div>
-    </div>
-  );
-}
 
 // ============================================================================
 // AREA CHART COMPONENT - Smooth area visualization with proper scaling
 // ============================================================================
-function AreaChart({ 
-  data, 
+function AreaChart({
+  data,
   height = 280,
   showLabels = true 
 }: { 
@@ -179,335 +67,219 @@ function AreaChart({
   height?: number;
   showLabels?: boolean;
 }) {
-  // Handle empty or insufficient data
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground">
-        No hay datos para el período seleccionado
+      <div className="flex items-center justify-center text-muted-foreground" style={{ height }}>
+        <div className="text-center">
+          <BarChart3 className="h-10 w-10 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No hay datos para el período seleccionado</p>
+        </div>
       </div>
     );
   }
   
-  if (data.length === 1) {
-    return (
-      <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-        <Package className="h-8 w-8 mb-2 text-blue-500" />
-        <p className="font-semibold text-foreground">{data[0].orders} pedidos</p>
-        <p className="text-sm">{format(new Date(data[0].date), 'dd MMMM yyyy', { locale: es })}</p>
-      </div>
-    );
-  }
-  
-  const maxOrders = Math.max(...data.map(d => d.orders), 1);
-  const minOrders = Math.min(...data.map(d => d.orders));
-  const padding = { top: 50, right: 10, bottom: showLabels ? 50 : 20, left: 10 };
-  const chartHeight = height - padding.top - padding.bottom;
-  const chartWidth = 100; // Use viewBox units
-  
-  // Calculate Y position with proper scaling
-  const getY = (value: number) => {
-    if (maxOrders === minOrders) return chartHeight / 2 + padding.top;
-    return chartHeight - ((value - minOrders) / (maxOrders - minOrders)) * chartHeight + padding.top;
-  };
-  
-  // Generate smooth curve path
-  const getPath = () => {
-    const points = data.map((d, i) => ({
-      x: data.length === 1 ? 50 : (i / (data.length - 1)) * chartWidth,
-      y: getY(d.orders)
-    }));
-    
-    if (points.length < 2) return '';
-    
-    let path = `M ${points[0].x},${points[0].y}`;
-    
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i - 1] || points[i];
-      const p1 = points[i];
-      const p2 = points[i + 1];
-      const p3 = points[i + 2] || p2;
-      
-      // Tension factor for smoothness
-      const tension = 0.3;
-      const cp1x = p1.x + (p2.x - p0.x) * tension;
-      const cp1y = p1.y + (p2.y - p0.y) * tension;
-      const cp2x = p2.x - (p3.x - p1.x) * tension;
-      const cp2y = p2.y - (p3.y - p1.y) * tension;
-      
-      path += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
-    }
-    
-    return path;
-  };
-  
-  const linePath = getPath();
-  const areaPath = `${linePath} L ${chartWidth},${chartHeight + padding.top} L 0,${chartHeight + padding.top} Z`;
-  
-  // Calculate statistics
+  // Calculate totals
   const totalOrders = data.reduce((sum, d) => sum + d.orders, 0);
-  const avgOrders = Math.round(totalOrders / data.length);
-  const daysWithData = data.filter(d => d.orders > 0).length;
-  const trend = data.length > 1 ? data[data.length - 1].orders - data[0].orders : 0;
+  const maxOrders = Math.max(...data.map(d => d.orders), 1);
+  const daysWithOrders = data.filter(d => d.orders > 0).length;
+  const avgOrders = daysWithOrders > 0 ? Math.round(totalOrders / daysWithOrders) : 0;
   
-  // Determine label positions - show more labels for short periods
+  // Today indicator
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const todayData = data.find(d => d.date === today);
+  
+  // Calculate nice round numbers for Y axis  
+  const yAxisMax = Math.max(Math.ceil(maxOrders * 1.15 / 5) * 5, 10);
+  const yAxisSteps = [0, Math.round(yAxisMax * 0.25), Math.round(yAxisMax * 0.5), Math.round(yAxisMax * 0.75), yAxisMax];
+  
+  // Trend calculation (comparing first half vs second half)
+  const firstHalf = data.slice(0, Math.floor(data.length / 2));
+  const secondHalf = data.slice(Math.floor(data.length / 2));
+  const firstHalfSum = firstHalf.reduce((sum, d) => sum + d.orders, 0);
+  const secondHalfSum = secondHalf.reduce((sum, d) => sum + d.orders, 0);
+  const trendPct = firstHalfSum > 0 ? ((secondHalfSum - firstHalfSum) / firstHalfSum) * 100 : 0;
+  
+  // Date label logic
   const getLabelIndices = () => {
-    if (data.length <= 7) return data.map((_, i) => i); // Show all
+    if (data.length <= 7) return data.map((_, i) => i);
     if (data.length <= 14) return data.map((_, i) => i).filter(i => i % 2 === 0 || i === data.length - 1);
-    const step = Math.ceil(data.length / 6);
+    const step = Math.ceil(data.length / 7);
     return data.map((_, i) => i).filter(i => i === 0 || i === data.length - 1 || i % step === 0);
   };
-  
   const labelIndices = getLabelIndices();
   
+  const chartPadding = { top: 32, right: 12, bottom: showLabels ? 40 : 16, left: 48 };
+
   return (
-    <div className="relative w-full" style={{ height }}>
-      <svg 
-        viewBox={`0 0 ${chartWidth} ${height}`} 
-        preserveAspectRatio="none"
-        className="w-full h-full overflow-visible"
-      >
-        <defs>
-          <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-            <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.35" />
-            <stop offset="60%" stopColor="#3b82f6" stopOpacity="0.1" />
-            <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-          </linearGradient>
-          <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#60a5fa" />
-            <stop offset="50%" stopColor="#3b82f6" />
-            <stop offset="100%" stopColor="#2563eb" />
-          </linearGradient>
-        </defs>
-        
-        {/* Horizontal grid lines */}
-        {[0, 0.25, 0.5, 0.75, 1].map((pct) => (
-          <line
-            key={pct}
-            x1="0"
-            y1={padding.top + chartHeight * (1 - pct)}
-            x2={chartWidth}
-            y2={padding.top + chartHeight * (1 - pct)}
-            stroke="currentColor"
-            strokeOpacity="0.06"
-            strokeDasharray="2 2"
-          />
-        ))}
-        
-        {/* Area fill */}
-        <path
-          d={areaPath}
-          fill="url(#areaGradient)"
-        />
-        
-        {/* Line */}
-        <path
-          d={linePath}
-          fill="none"
-          stroke="url(#lineGradient)"
-          strokeWidth="0.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        
-        {/* Data points - only show on hover via CSS */}
-        {data.map((d, i) => {
-          const x = data.length === 1 ? 50 : (i / (data.length - 1)) * chartWidth;
-          const y = getY(d.orders);
-          
-          return (
-            <circle
-              key={d.date}
-              cx={x}
-              cy={y}
-              r="1.2"
-              fill="white"
-              stroke="#3b82f6"
-              strokeWidth="0.5"
-              className="opacity-0 hover:opacity-100 transition-opacity"
-            />
-          );
-        })}
-      </svg>
-      
-      {/* X-axis labels - positioned absolutely for better control */}
-      {showLabels && (
-        <div className="absolute bottom-2 left-0 right-0 flex justify-between px-1">
-          {data.map((d, i) => {
-            if (!labelIndices.includes(i)) return null;
-            const leftPct = data.length === 1 ? 50 : (i / (data.length - 1)) * 100;
-            return (
-              <span 
-                key={d.date}
-                className="text-[10px] text-muted-foreground whitespace-nowrap"
-                style={{ 
-                  position: 'absolute', 
-                  left: `${leftPct}%`,
-                  transform: 'translateX(-50%)'
-                }}
-              >
-                {format(new Date(d.date), 'dd/MM', { locale: es })}
-              </span>
-            );
-          })}
+    <div className="relative w-full select-none" style={{ height }}>
+      {/* Today's orders badge */}
+      {todayData && (
+        <div className="absolute top-0 left-12 flex items-center gap-2 text-xs">
+          <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
+            Hoy: {todayData.orders} pedidos
+          </span>
         </div>
       )}
       
-      {/* Interactive overlay with tooltips */}
-      <div className="absolute inset-0" style={{ top: padding.top, bottom: padding.bottom }}>
-        <div className="relative w-full h-full flex">
+      {/* Summary stats */}
+      <div className="absolute top-0 right-2 flex items-center gap-4 text-[11px]">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <span>Total período:</span>
+          <span className="font-bold text-foreground tabular-nums">{totalOrders.toLocaleString('es-ES')}</span>
+        </div>
+        <div className={cn(
+          "flex items-center gap-1 font-medium tabular-nums",
+          trendPct > 5 ? "text-emerald-600 dark:text-emerald-500" : 
+          trendPct < -5 ? "text-red-600 dark:text-red-500" : 
+          "text-muted-foreground"
+        )}>
+          {trendPct > 5 && <TrendingUp className="h-3 w-3" />}
+          {trendPct < -5 && <TrendingUp className="h-3 w-3 rotate-180" />}
+          <span>{trendPct > 0 ? '+' : ''}{trendPct.toFixed(0)}%</span>
+        </div>
+      </div>
+      
+      {/* Y-Axis labels */}
+      <div 
+        className="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-right pr-2"
+        style={{ width: chartPadding.left, paddingTop: chartPadding.top, paddingBottom: chartPadding.bottom }}
+      >
+        {yAxisSteps.slice().reverse().map((val, i) => (
+          <span key={i} className="text-[10px] text-muted-foreground tabular-nums leading-none">
+            {val}
+          </span>
+        ))}
+      </div>
+      
+      {/* Chart area */}
+      <div 
+        className="absolute bg-muted/20 rounded"
+        style={{ 
+          left: chartPadding.left, 
+          right: chartPadding.right, 
+          top: chartPadding.top, 
+          bottom: chartPadding.bottom 
+        }}
+      >
+        {/* Horizontal grid lines */}
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+          {yAxisSteps.map((_, i) => (
+            <div 
+              key={i} 
+              className="w-full border-t border-border/40"
+              style={{ borderStyle: i === 0 ? 'solid' : 'dashed' }}
+            />
+          ))}
+        </div>
+        
+        {/* Average reference line (only if meaningful) */}
+        {avgOrders > 0 && avgOrders < yAxisMax && (
+          <div 
+            className="absolute w-full border-t-2 border-amber-500/60 pointer-events-none z-10"
+            style={{ bottom: `${(avgOrders / yAxisMax) * 100}%` }}
+          >
+            <span className="absolute right-1 -translate-y-1/2 text-[9px] text-amber-600 dark:text-amber-400 bg-card/90 px-1 rounded font-medium">
+              Prom: {avgOrders}
+            </span>
+          </div>
+        )}
+        
+        {/* Bars container */}
+        <div className="absolute inset-x-2 inset-y-0 flex items-end gap-[3px]">
           {data.map((d, i) => {
-            const leftPct = data.length === 1 ? 50 : (i / (data.length - 1)) * 100;
+            const barHeight = (d.orders / yAxisMax) * 100;
+            const isToday = d.date === today;
+            const hasOrders = d.orders > 0;
+            
             return (
               <div 
                 key={d.date}
-                className="flex-1 group relative"
+                className="flex-1 group relative flex flex-col justify-end h-full"
                 style={{ minWidth: 0 }}
               >
+                {/* Bar */}
+                <div 
+                  className={cn(
+                    "w-full transition-all duration-200 rounded-t-sm",
+                    isToday 
+                      ? "bg-blue-500 group-hover:bg-blue-600" 
+                      : hasOrders
+                        ? "bg-slate-500 dark:bg-slate-400 group-hover:bg-slate-600 dark:group-hover:bg-slate-300"
+                        : "bg-slate-200 dark:bg-slate-700"
+                  )}
+                  style={{ 
+                    height: hasOrders ? `${Math.max(barHeight, 3)}%` : '2px',
+                    minHeight: hasOrders ? '4px' : '2px'
+                  }}
+                />
+                
+                {/* Today indicator dot */}
+                {isToday && (
+                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-blue-500 rounded-full" />
+                )}
+                
                 {/* Tooltip */}
                 <div 
-                  className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none"
-                  style={{ 
-                    left: '50%', 
-                    transform: 'translateX(-50%)'
-                  }}
+                  className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-30 pointer-events-none"
                 >
-                  <div className="bg-gray-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl whitespace-nowrap">
-                    <div className="font-semibold text-blue-300">
+                  <div className={cn(
+                    "text-white text-xs rounded shadow-lg whitespace-nowrap px-2.5 py-1.5",
+                    isToday ? "bg-blue-600" : "bg-slate-800"
+                  )}>
+                    <div className="text-white/70 text-[10px] font-medium flex items-center gap-1">
+                      {isToday && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
                       {format(new Date(d.date), 'EEEE, d MMM', { locale: es })}
+                      {isToday && <span className="text-white font-semibold">(HOY)</span>}
                     </div>
-                    <div className="mt-1 flex items-center gap-2">
-                      <Package className="h-3 w-3 text-blue-400" />
-                      <span className="font-bold">{d.orders}</span>
-                      <span className="text-gray-400">pedidos</span>
+                    <div className="mt-0.5 font-bold tabular-nums text-sm">
+                      {d.orders} <span className="font-normal text-white/70">pedidos</span>
                     </div>
                     {d.pallets > 0 && (
-                      <div className="flex items-center gap-2 text-gray-300">
-                        <Truck className="h-3 w-3 text-emerald-400" />
-                        <span>{d.pallets} pallets</span>
+                      <div className="text-white/60 text-[10px] tabular-nums">
+                        {d.pallets} pallets
                       </div>
                     )}
                   </div>
                 </div>
-                {/* Hover indicator line */}
-                <div className="absolute top-0 bottom-0 left-1/2 w-px bg-blue-400/50 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             );
           })}
         </div>
       </div>
       
-      {/* Floating stats */}
-      <div className="absolute top-2 right-2 flex items-center gap-2 flex-wrap justify-end">
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-background/90 backdrop-blur-sm border text-xs shadow-sm">
-          <Activity className="h-3 w-3 text-blue-500" />
-          <span className="text-muted-foreground">Promedio:</span>
-          <span className="font-semibold">{avgOrders}</span>
+      {/* X-Axis labels */}
+      {showLabels && (
+        <div 
+          className="absolute left-0 right-0 bottom-0 flex"
+          style={{ 
+            height: chartPadding.bottom - 8,
+            paddingLeft: chartPadding.left + 8, 
+            paddingRight: chartPadding.right + 8,
+            paddingTop: 8
+          }}
+        >
+          {data.map((d, i) => {
+            const isToday = d.date === today;
+            if (!labelIndices.includes(i) && !isToday) return <div key={d.date} className="flex-1" />;
+            return (
+              <div key={d.date} className="flex-1 flex justify-center">
+                <span className={cn(
+                  "text-[10px] whitespace-nowrap tabular-nums",
+                  isToday ? "text-blue-600 dark:text-blue-400 font-semibold" : "text-muted-foreground"
+                )}>
+                  {isToday ? 'Hoy' : format(new Date(d.date), 'dd/MM', { locale: es })}
+                </span>
+              </div>
+            );
+          })}
         </div>
-        <div className={cn(
-          "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium shadow-sm",
-          trend > 0 ? "bg-emerald-100 text-emerald-700" : 
-          trend < 0 ? "bg-red-100 text-red-700" : 
-          "bg-gray-100 text-gray-600"
-        )}>
-          {trend > 0 ? <ArrowUpRight className="h-3 w-3" /> : 
-           trend < 0 ? <ArrowDownRight className="h-3 w-3" /> : 
-           <Minus className="h-3 w-3" />}
-          {Math.abs(trend)} vs inicio
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
 // ============================================================================
-// METRIC CARD - Glassmorphism KPI card
-// ============================================================================
-interface MetricCardProps {
-  title: string;
-  value: number | string;
-  subtitle?: string;
-  icon: React.ElementType;
-  change?: number;
-  sparklineData?: number[];
-  accentColor: string;
-  iconBg: string;
-  size?: 'default' | 'large';
-}
-
-function MetricCard({ 
-  title, 
-  value, 
-  subtitle, 
-  icon: Icon, 
-  change, 
-  sparklineData,
-  accentColor,
-  iconBg,
-  size = 'default'
-}: MetricCardProps) {
-  return (
-    <div className={cn(
-      "group relative overflow-hidden rounded-2xl border border-white/10",
-      "bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40",
-      "backdrop-blur-xl shadow-xl hover:shadow-2xl transition-all duration-500",
-      "hover:translate-y-[-2px] hover:border-white/20",
-      size === 'large' ? 'p-6' : 'p-5'
-    )}>
-      {/* Ambient glow effect */}
-      <div 
-        className="absolute -top-20 -right-20 w-40 h-40 rounded-full opacity-20 blur-3xl transition-opacity duration-500 group-hover:opacity-30"
-        style={{ background: accentColor }}
-      />
-      
-      <div className="relative z-10">
-        <div className="flex items-start justify-between mb-3">
-          <div className={cn(
-            "p-2.5 rounded-xl",
-            iconBg
-          )}>
-            <Icon className="h-5 w-5 text-white" />
-          </div>
-          
-          {change !== undefined && (
-            <div className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold",
-              change > 0 ? "bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400" : 
-              change < 0 ? "bg-red-100/80 text-red-700 dark:bg-red-900/50 dark:text-red-400" : 
-              "bg-gray-100/80 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400"
-            )}>
-              {change > 0 ? <ArrowUpRight className="h-3 w-3" /> : 
-               change < 0 ? <ArrowDownRight className="h-3 w-3" /> : 
-               <Minus className="h-3 w-3" />}
-              {change > 0 ? '+' : ''}{change}%
-            </div>
-          )}
-        </div>
-        
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <p className={cn(
-            "font-bold tracking-tight",
-            size === 'large' ? 'text-4xl' : 'text-3xl'
-          )}>
-            {typeof value === 'number' ? value.toLocaleString('es-ES') : value}
-          </p>
-          {subtitle && (
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
-          )}
-        </div>
-        
-        {sparklineData && sparklineData.length > 1 && (
-          <div className="mt-4 -mx-1">
-            <Sparkline data={sparklineData} color={accentColor} height={36} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
-// CLIENT RANKING CARD - Modern leaderboard item
+// CLIENT RANKING CARD
 // ============================================================================
 function ClientRankCard({ 
   client, 
@@ -528,15 +300,17 @@ function ClientRankCard({
   };
   
   return (
-    <div className={cn(
-      "group relative p-4 rounded-xl transition-all duration-300",
-      "bg-gradient-to-r from-white/60 to-white/30 dark:from-gray-800/60 dark:to-gray-800/30",
-      "border border-white/20 dark:border-gray-700/30",
-      "hover:from-white/80 hover:to-white/50 dark:hover:from-gray-800/80 dark:hover:to-gray-800/50",
-      "hover:shadow-lg hover:border-white/30"
-    )}>
+    <Link 
+      to={`/orders?client_id=${client.clientId}`}
+      className={cn(
+        "group relative p-4 rounded-xl transition-all duration-300",
+        "bg-gradient-to-r from-white/60 to-white/30 dark:from-gray-800/60 dark:to-gray-800/30",
+        "border border-white/20 dark:border-gray-700/30",
+        "hover:from-white/80 hover:to-white/50 dark:hover:from-gray-800/80 dark:hover:to-gray-800/50",
+        "hover:shadow-lg hover:border-white/30"
+      )}
+    >
       <div className="flex items-center gap-4">
-        {/* Rank badge */}
         <div className={cn(
           "w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0",
           "transition-transform duration-300 group-hover:scale-110",
@@ -547,7 +321,6 @@ function ClientRankCard({
           {rank}
         </div>
         
-        {/* Client info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-2">
             <span className="font-semibold truncate pr-4">{client.clientName}</span>
@@ -561,7 +334,6 @@ function ClientRankCard({
             </div>
           </div>
           
-          {/* Progress bar */}
           <div className="h-1.5 bg-muted/50 rounded-full overflow-hidden">
             <div
               className={cn(
@@ -574,13 +346,15 @@ function ClientRankCard({
             />
           </div>
         </div>
+        
+        <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
-    </div>
+    </Link>
   );
 }
 
 // ============================================================================
-// REGION CARD - Geographic distribution card
+// REGION CARD
 // ============================================================================
 function RegionCard({ 
   region, 
@@ -605,13 +379,15 @@ function RegionCard({
   const gradient = gradients[index % gradients.length];
   
   return (
-    <div className={cn(
-      "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden",
-      "bg-gradient-to-br from-white/70 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40",
-      "border border-white/20 dark:border-gray-700/30",
-      "hover:shadow-xl hover:scale-[1.02]"
-    )}>
-      {/* Background gradient on hover */}
+    <Link
+      to={`/orders?region=${encodeURIComponent(region.region)}`}
+      className={cn(
+        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden",
+        "bg-gradient-to-br from-white/70 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40",
+        "border border-white/20 dark:border-gray-700/30",
+        "hover:shadow-xl hover:scale-[1.02]"
+      )}
+    >
       <div className={cn(
         "absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-5 transition-opacity duration-500",
         gradient
@@ -642,7 +418,6 @@ function RegionCard({
           </Badge>
         </div>
         
-        {/* Progress indicator */}
         <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
           <div
             className={cn(
@@ -653,11 +428,206 @@ function RegionCard({
           />
         </div>
         
-        {/* Percentage label */}
         <p className="text-xs text-muted-foreground mt-2 text-right">
           {Math.round(percentage)}% del máximo
         </p>
       </div>
+    </Link>
+  );
+}
+
+// ============================================================================
+// HOURLY PATTERN CHART - Bar chart showing orders by hour
+// ============================================================================
+function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Activity className="h-12 w-12 mb-3 opacity-50" />
+        <p>No hay datos de patrón horario</p>
+      </div>
+    );
+  }
+
+  const maxOrders = Math.max(...data.map(d => d.orders), 1);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end justify-between gap-1 h-40">
+        {data.map((item) => {
+          const height = (item.orders / maxOrders) * 100;
+          const isWorkHours = item.hour >= 8 && item.hour <= 18;
+          
+          return (
+            <div
+              key={item.hour}
+              className="flex-1 flex flex-col items-center group"
+            >
+              <div className="relative w-full flex justify-center">
+                {/* Tooltip */}
+                <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
+                    {item.hour}:00 - {item.orders} pedidos
+                  </div>
+                </div>
+                {/* Bar */}
+                <div
+                  className={cn(
+                    "w-full max-w-[20px] rounded-t transition-all duration-300",
+                    isWorkHours 
+                      ? "bg-gradient-to-t from-cyan-500 to-cyan-400" 
+                      : "bg-gradient-to-t from-gray-300 to-gray-200 dark:from-gray-600 dark:to-gray-500",
+                    "group-hover:from-cyan-600 group-hover:to-cyan-500"
+                  )}
+                  style={{ height: `${Math.max(height, 4)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* X axis labels */}
+      <div className="flex justify-between text-[10px] text-muted-foreground px-1">
+        <span>0h</span>
+        <span>6h</span>
+        <span>12h</span>
+        <span>18h</span>
+        <span>23h</span>
+      </div>
+      {/* Legend */}
+      <div className="flex items-center justify-center gap-4 pt-2 text-xs">
+        <div className="flex items-center gap-1">
+          <div className="w-3 h-3 rounded bg-cyan-500" />
+          <span className="text-muted-foreground">Horario laboral (8-18h)</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// WEEKDAY PATTERN CHART - Bar chart showing orders by day of week
+// ============================================================================
+function WeekdayPatternChart({ data }: { data: WeekdayPattern[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Activity className="h-12 w-12 mb-3 opacity-50" />
+        <p>No hay datos de patrón semanal</p>
+      </div>
+    );
+  }
+
+  const maxOrders = Math.max(...data.map(d => d.orders), 1);
+  const totalOrders = data.reduce((sum, d) => sum + d.orders, 0);
+
+  // Reorder to start from Monday (1) instead of Sunday (0)
+  const orderedData = [...data].sort((a, b) => {
+    const aDay = a.dayOfWeek === 0 ? 7 : a.dayOfWeek;
+    const bDay = b.dayOfWeek === 0 ? 7 : b.dayOfWeek;
+    return aDay - bDay;
+  });
+
+  const dayColors = [
+    'from-violet-500 to-purple-600',
+    'from-blue-500 to-indigo-600',
+    'from-cyan-500 to-teal-600',
+    'from-emerald-500 to-green-600',
+    'from-amber-500 to-orange-600',
+    'from-rose-400 to-pink-500',
+    'from-gray-400 to-gray-500',
+  ];
+
+  return (
+    <div className="space-y-3">
+      {orderedData.map((item, index) => {
+        const percentage = totalOrders > 0 ? (item.orders / totalOrders) * 100 : 0;
+        const barWidth = (item.orders / maxOrders) * 100;
+        const isWeekend = item.dayOfWeek === 0 || item.dayOfWeek === 6;
+        
+        return (
+          <div key={item.dayOfWeek} className="flex items-center gap-3">
+            <div className="w-12 text-sm font-medium text-muted-foreground">
+              {item.dayName.slice(0, 3)}
+            </div>
+            <div className="flex-1 h-6 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-gradient-to-r transition-all duration-500",
+                  isWeekend ? 'from-gray-400 to-gray-500' : dayColors[index % dayColors.length]
+                )}
+                style={{ width: `${Math.max(barWidth, 4)}%` }}
+              />
+            </div>
+            <div className="w-16 text-right">
+              <span className="font-semibold text-sm">{item.orders}</span>
+              <span className="text-xs text-muted-foreground ml-1">({percentage.toFixed(0)}%)</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// TOP DESTINATIONS CHART
+// ============================================================================
+function TopDestinationsChart({ data }: { data: DestinationStats[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <MapPin className="h-12 w-12 mb-3 opacity-50" />
+        <p>No hay datos de destinos</p>
+      </div>
+    );
+  }
+
+  const maxDeliveries = Math.max(...data.map(d => d.deliveries), 1);
+
+  return (
+    <div className="space-y-3">
+      {data.slice(0, 8).map((dest, index) => {
+        const barWidth = (dest.deliveries / maxDeliveries) * 100;
+        const gradients = [
+          'from-emerald-500 to-teal-600',
+          'from-blue-500 to-indigo-600',
+          'from-violet-500 to-purple-600',
+          'from-rose-500 to-pink-600',
+          'from-amber-500 to-orange-600',
+        ];
+        const gradient = gradients[index % gradients.length];
+        
+        return (
+          <div key={dest.destinationId} className="group">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium truncate pr-2" title={dest.destinationName}>
+                {dest.destinationName}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-semibold text-sm">{dest.deliveries}</span>
+                <Badge variant="outline" className="text-xs">
+                  {dest.pallets} plt
+                </Badge>
+              </div>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-gradient-to-r transition-all duration-500",
+                  gradient
+                )}
+                style={{ width: `${barWidth}%` }}
+              />
+            </div>
+            {dest.city && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {dest.city}{dest.province ? `, ${dest.province}` : ''}
+              </p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -667,16 +637,19 @@ function RegionCard({
 // ============================================================================
 function MetricSkeleton() {
   return (
-    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/60 to-white/30 p-5 animate-pulse">
+    <div className="rounded-2xl border-2 border-border/50 bg-gradient-to-br from-white/60 to-white/30 p-5 animate-pulse">
       <div className="flex items-start justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl bg-muted" />
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-xl bg-muted" />
+          <div className="w-24 h-4 rounded bg-muted" />
+        </div>
         <div className="w-16 h-6 rounded-full bg-muted" />
       </div>
       <div className="space-y-2">
-        <div className="w-24 h-4 rounded bg-muted" />
         <div className="w-32 h-8 rounded bg-muted" />
-        <div className="w-20 h-3 rounded bg-muted" />
+        <div className="w-40 h-4 rounded bg-muted" />
       </div>
+      <div className="mt-4 h-9 rounded bg-muted/50" />
     </div>
   );
 }
@@ -702,29 +675,82 @@ function ChartSkeleton({ height = 200 }: { height?: number }) {
 }
 
 // ============================================================================
+// EMPTY STATE
+// ============================================================================
+function AnalyticsEmptyState({ onResetFilters }: { onResetFilters: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <Package className="h-16 w-16 text-muted-foreground/50 mb-4" />
+      <h3 className="text-lg font-semibold mb-2">Sin datos para este período</h3>
+      <p className="text-muted-foreground max-w-md mb-4">
+        No se encontraron pedidos con los filtros seleccionados.
+        Intenta seleccionar un rango de fechas diferente o limpiar los filtros.
+      </p>
+      <Button variant="outline" onClick={onResetFilters}>
+        <RefreshCw className="h-4 w-4 mr-2" />
+        Ver últimos 30 días
+      </Button>
+    </div>
+  );
+}
+
+// ============================================================================
+// ERROR STATE
+// ============================================================================
+function AnalyticsErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center" role="alert">
+      <AlertTriangle className="h-16 w-16 text-destructive/50 mb-4" />
+      <h3 className="text-lg font-semibold mb-2">Error al cargar datos</h3>
+      <p className="text-muted-foreground max-w-md mb-4">
+        No se pudieron obtener los datos de analítica. Por favor, verifica tu conexión e inténtalo de nuevo.
+      </p>
+      <Button onClick={onRetry}>
+        <RefreshCw className="h-4 w-4 mr-2" />
+        Reintentar
+      </Button>
+    </div>
+  );
+}
+
+// ============================================================================
 // MAIN ANALYTICS COMPONENT
 // ============================================================================
 export default function Analytics() {
-  const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('30d');
-  const [customRange, setCustomRange] = useState<DateRange>({
-    from: subDays(new Date(), 30),
-    to: new Date(),
+  // Filter state
+  const [filters, setFilters] = useState<AnalyticsFilters>({
+    periodPreset: '30d',
+    customRange: {
+      from: subDays(new Date(), 30),
+      to: new Date(),
+    },
+    comparisonPeriod: 'previous',
+    clientId: undefined,
+    regionId: undefined,
   });
+  
+  // Loading and error state
   const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   
-  // Data states
+  // Data states - Business Analytics focused
   const [kpis, setKpis] = useState<AnalyticsKPIs | null>(null);
   const [dailyTrend, setDailyTrend] = useState<DailyTrend[]>([]);
   const [statusDist, setStatusDist] = useState<StatusDistribution[]>([]);
   const [clientStats, setClientStats] = useState<ClientStats[]>([]);
   const [regionStats, setRegionStats] = useState<RegionStats[]>([]);
   const [comparison, setComparison] = useState<PeriodComparison | null>(null);
+  const [hourlyPattern, setHourlyPattern] = useState<HourlyPattern[]>([]);
+  const [weekdayPattern, setWeekdayPattern] = useState<WeekdayPattern[]>([]);
+  const [topDestinations, setTopDestinations] = useState<DestinationStats[]>([]);
+  const [filterClients, setFilterClients] = useState<FilterOption[]>([]);
+  const [filterRegions, setFilterRegions] = useState<FilterOption[]>([]);
   
-  // Calculate date range based on preset
+  // Calculate date range based on preset - simple calculation, no state updates
   const dateRange = useMemo<DateRange>(() => {
     const now = new Date();
-    switch (periodPreset) {
+    switch (filters.periodPreset) {
       case '7d':
         return { from: startOfDay(subDays(now, 7)), to: endOfDay(now) };
       case '30d':
@@ -732,76 +758,142 @@ export default function Analytics() {
       case '90d':
         return { from: startOfDay(subDays(now, 90)), to: endOfDay(now) };
       case 'custom':
-        return customRange;
+        return { from: startOfDay(filters.customRange.from), to: endOfDay(filters.customRange.to) };
       default:
         return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
     }
-  }, [periodPreset, customRange]);
+  }, [filters.periodPreset, filters.customRange.from, filters.customRange.to]);
   
-  // Fetch data
-  const loadData = async () => {
+  // NOTE: Removed the useEffect that was causing infinite loop by updating filters when dateRange changes
+
+  // Load filter options once
+  useEffect(() => {
+    async function loadFilterOptions() {
+      const [clients, regions] = await Promise.all([
+        fetchClientsForFilter(),
+        fetchRegionsForFilter(),
+      ]);
+      setFilterClients(clients);
+      setFilterRegions(regions);
+    }
+    loadFilterOptions();
+  }, []);
+  
+  // Fetch data - Business Analytics focused (no operational data)
+  const loadData = useCallback(async () => {
+    console.log('[Analytics] loadData called with dateRange:', dateRange);
     setIsLoading(true);
+    setHasError(false);
+    
+    const defaultKPIs: AnalyticsKPIs = {
+      totalOrders: 0,
+      totalPallets: 0,
+      totalDeliveries: 0,
+      uniqueRegions: 0,
+      pendingLocations: 0,
+      avgOrdersPerDay: 0,
+    };
+    
     try {
-      const [
-        kpisData,
-        trendData,
-        statusData,
-        clientData,
-        regionData,
-        comparisonData,
-      ] = await Promise.all([
+      // Business analytics data only - no operational queues
+      console.log('[Analytics] Fetching business analytics data...');
+      const results = await Promise.allSettled([
         fetchAnalyticsKPIs(dateRange),
         fetchDailyTrend(dateRange),
         fetchStatusDistribution(dateRange),
         fetchClientStats(dateRange),
         fetchRegionStats(dateRange),
         fetchPeriodComparison(dateRange),
+        fetchHourlyPattern(dateRange),
+        fetchWeekdayPattern(dateRange),
+        fetchTopDestinations(dateRange, 10),
       ]);
       
+      console.log('[Analytics] Results:', results.map((r, i) => ({ i, status: r.status })));
+      
+      // Extract values, using defaults for failed requests
+      const getValue = <T,>(result: PromiseSettledResult<T>, defaultValue: T): T => {
+        if (result.status === 'fulfilled') return result.value;
+        console.warn('[Analytics] Request failed:', result.reason);
+        return defaultValue;
+      };
+      
+      const kpisData = getValue(results[0] as PromiseSettledResult<AnalyticsKPIs>, defaultKPIs);
+      console.log('[Analytics] KPIs:', kpisData);
+      
       setKpis(kpisData);
-      setDailyTrend(trendData);
-      setStatusDist(statusData);
-      setClientStats(clientData);
-      setRegionStats(regionData);
-      setComparison(comparisonData);
+      setDailyTrend(getValue(results[1] as PromiseSettledResult<DailyTrend[]>, []));
+      setStatusDist(getValue(results[2] as PromiseSettledResult<StatusDistribution[]>, []));
+      setClientStats(getValue(results[3] as PromiseSettledResult<ClientStats[]>, []));
+      setRegionStats(getValue(results[4] as PromiseSettledResult<RegionStats[]>, []));
+      setComparison(getValue(results[5] as PromiseSettledResult<PeriodComparison>, null as any));
+      setHourlyPattern(getValue(results[6] as PromiseSettledResult<HourlyPattern[]>, []));
+      setWeekdayPattern(getValue(results[7] as PromiseSettledResult<WeekdayPattern[]>, []));
+      setTopDestinations(getValue(results[8] as PromiseSettledResult<DestinationStats[]>, []));
       setLastUpdated(new Date());
+      
+      // Check if ALL requests failed
+      const allFailed = results.every(r => r.status === 'rejected');
+      if (allFailed) {
+        console.error('[Analytics] All requests failed!');
+        setHasError(true);
+      }
+      
+      console.log('[Analytics] Data loaded successfully, setting isLoading=false');
     } catch (error) {
-      console.error('Error loading analytics:', error);
+      console.error('[Analytics] Error loading analytics:', error);
+      setHasError(true);
     } finally {
       setIsLoading(false);
     }
-  };
-  
-  useEffect(() => {
-    loadData();
   }, [dateRange]);
   
+  // Load data when dateRange changes - use a ref to prevent multiple calls
+  const lastDateRangeRef = React.useRef<string>('');
+  
+  useEffect(() => {
+    const rangeKey = `${dateRange.from.toISOString()}-${dateRange.to.toISOString()}`;
+    // Only load if dateRange actually changed
+    if (lastDateRangeRef.current !== rangeKey) {
+      lastDateRangeRef.current = rangeKey;
+      console.log('[Analytics] dateRange changed, calling loadData');
+      loadData();
+    }
+  }, [dateRange, loadData]);
+
+  // Handle filter changes
+  const handleFiltersChange = (newFilters: Partial<AnalyticsFilters>) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      periodPreset: '30d',
+      customRange: {
+        from: subDays(new Date(), 30),
+        to: new Date(),
+      },
+      comparisonPeriod: 'previous',
+      clientId: undefined,
+      regionId: undefined,
+    });
+  };
+  
   // Derived data
-  const maxClientOrders = Math.max(...clientStats.slice(0, 10).map(c => c.totalOrders), 1);
-  const maxRegionDeliveries = Math.max(...regionStats.map(r => r.deliveries), 1);
-  const totalStatusCount = statusDist.reduce((sum, s) => sum + s.count, 0);
+  const maxClientOrders = Math.max(...(clientStats.slice(0, 10).map(c => c.totalOrders) || [1]), 1);
+  const maxRegionDeliveries = Math.max(...(regionStats.map(r => r.deliveries) || [1]), 1);
   const sparklineData = dailyTrend.map(d => d.orders);
+  const palletsSparkline = dailyTrend.map(d => d.pallets);
   
-  // Period label
-  const periodLabel = periodPreset === 'custom' 
-    ? `${format(customRange.from, 'dd MMM', { locale: es })} - ${format(customRange.to, 'dd MMM', { locale: es })}`
-    : periodPreset === '7d' ? 'Últimos 7 días' 
-    : periodPreset === '30d' ? 'Últimos 30 días' 
-    : 'Últimos 90 días';
-  
-  // Donut chart data
-  const donutData = statusDist.slice(0, 6).map(s => ({
-    label: STATUS_CONFIG[s.status]?.label || s.status,
-    value: s.count,
-    color: STATUS_CONFIG[s.status]?.color || '#888',
-  }));
+  // Check if we have data - kpis being non-null is enough to show the UI
+  const hasData = kpis !== null;
   
   return (
-    <div className="space-y-8 pb-8">
+    <div className="space-y-6 pb-8">
       {/* ================================================================== */}
       {/* HEADER */}
       {/* ================================================================== */}
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div className="space-y-1">
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25">
@@ -818,89 +910,28 @@ export default function Analytics() {
             </div>
           </div>
         </div>
-        
-        {/* Period selector & refresh */}
-        <div className="flex items-center gap-3">
-          {/* Last updated */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={loadData}
-                disabled={isLoading}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <RefreshCw className={cn("h-4 w-4 mr-2", isLoading && "animate-spin")} />
-                <Clock className="h-3 w-3 mr-1" />
-                {format(lastUpdated, 'HH:mm', { locale: es })}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Actualizar datos</TooltipContent>
-          </Tooltip>
-          
-          {/* Period buttons */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-muted/50 backdrop-blur-sm border border-white/10">
-            {(['7d', '30d', '90d'] as PeriodPreset[]).map((preset) => (
-              <Button
-                key={preset}
-                variant={periodPreset === preset ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => setPeriodPreset(preset)}
-                className={cn(
-                  "h-8 px-3 rounded-lg text-xs font-medium transition-all",
-                  periodPreset === preset && "shadow-md"
-                )}
-              >
-                {preset === '7d' ? '7D' : preset === '30d' ? '30D' : '90D'}
-              </Button>
-            ))}
-            
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant={periodPreset === 'custom' ? 'default' : 'ghost'}
-                  size="sm"
-                  className={cn(
-                    "h-8 px-3 rounded-lg text-xs font-medium transition-all",
-                    periodPreset === 'custom' && "shadow-md"
-                  )}
-                >
-                  <Calendar className="h-3.5 w-3.5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <CalendarComponent
-                  mode="range"
-                  selected={{ from: customRange.from, to: customRange.to }}
-                  onSelect={(range) => {
-                    if (range?.from && range?.to) {
-                      setCustomRange({ from: range.from, to: range.to });
-                      setPeriodPreset('custom');
-                    }
-                  }}
-                  locale={es}
-                  numberOfMonths={2}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
       </div>
       
-      {/* Period indicator */}
-      <div className="flex items-center gap-2 text-sm">
-        <Badge variant="secondary" className="font-normal">
-          {periodLabel}
-        </Badge>
-        <span className="text-muted-foreground">
-          • {format(dateRange.from, 'dd MMM yyyy', { locale: es })} → {format(dateRange.to, 'dd MMM yyyy', { locale: es })}
-        </span>
-      </div>
+      {/* ================================================================== */}
+      {/* FILTER BAR WITH DATA FRESHNESS */}
+      {/* ================================================================== */}
+      <AnalyticsFilterBar
+        filters={filters}
+        onFiltersChange={handleFiltersChange}
+        lastUpdated={lastUpdated}
+        isLoading={isLoading}
+        onRefresh={loadData}
+        clients={filterClients}
+        regions={filterRegions}
+        showAdvancedFilters={false}
+      />
       
-      {isLoading ? (
+      {/* Error state */}
+      {hasError && <AnalyticsErrorState onRetry={loadData} />}
+      
+      {/* Loading state */}
+      {isLoading && !hasError && (
         <>
-          {/* Loading state */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => <MetricSkeleton key={i} />)}
           </div>
@@ -909,53 +940,76 @@ export default function Analytics() {
             <ChartSkeleton height={280} />
           </div>
         </>
-      ) : (
+      )}
+      
+      {/* Empty state */}
+      {!isLoading && !hasError && !hasData && (
+        <AnalyticsEmptyState onResetFilters={handleResetFilters} />
+      )}
+      
+      {/* Main content - BUSINESS ANALYTICS (no operational queues) */}
+      {!isLoading && !hasError && hasData && (
         <>
           {/* ================================================================== */}
-          {/* KPI METRICS - Bento Grid */}
+          {/* KPI METRICS - Business focused */}
           {/* ================================================================== */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <MetricCard
+            <EnhancedMetricCard
               title="Total Pedidos"
               value={kpis?.totalOrders || 0}
-              subtitle={`${kpis?.avgOrdersPerDay || 0} promedio/día`}
-              icon={Package}
+              previousValue={comparison?.previous.totalOrders}
               change={comparison?.percentChange.orders}
+              definition={KPI_DEFINITIONS.totalOrders}
+              drilldownUrl={`/orders?from=${format(dateRange.from, 'yyyy-MM-dd')}&to=${format(dateRange.to, 'yyyy-MM-dd')}`}
+              drilldownLabel="Ver pedidos"
+              icon={Package}
               sparklineData={sparklineData}
               accentColor="#3b82f6"
               iconBg="bg-gradient-to-br from-blue-500 to-indigo-600"
             />
-            <MetricCard
+            <EnhancedMetricCard
               title="Pallets Movidos"
               value={kpis?.totalPallets || 0}
-              subtitle={`en ${dailyTrend.filter(d => d.pallets > 0).length} días activos`}
-              icon={Truck}
+              previousValue={comparison?.previous.totalPallets}
               change={comparison?.percentChange.pallets}
-              sparklineData={dailyTrend.map(d => d.pallets)}
+              definition={KPI_DEFINITIONS.totalPallets}
+              drilldownUrl={`/orders?from=${format(dateRange.from, 'yyyy-MM-dd')}&to=${format(dateRange.to, 'yyyy-MM-dd')}`}
+              drilldownLabel="Ver detalles"
+              icon={Truck}
+              sparklineData={palletsSparkline}
               accentColor="#10b981"
               iconBg="bg-gradient-to-br from-emerald-500 to-teal-600"
             />
-            <MetricCard
+            <EnhancedMetricCard
               title="Entregas Resueltas"
               value={kpis?.totalDeliveries || 0}
-              subtitle="destinos asignados"
-              icon={Target}
+              previousValue={comparison?.previous.totalDeliveries}
               change={comparison?.percentChange.deliveries}
+              definition={KPI_DEFINITIONS.deliveriesResolved}
+              drilldownUrl="/orders?location_status=AUTO,MANUALLY_SET,CONFIRMED"
+              drilldownLabel="Ver entregas"
+              icon={Target}
               accentColor="#8b5cf6"
               iconBg="bg-gradient-to-br from-violet-500 to-purple-600"
             />
-            <MetricCard
-              title="Pendientes"
-              value={kpis?.pendingLocations || 0}
-              subtitle="requieren ubicación"
-              icon={AlertCircle}
-              accentColor="#f59e0b"
-              iconBg="bg-gradient-to-br from-amber-500 to-orange-600"
+            <EnhancedMetricCard
+              title="Clientes Activos"
+              value={clientStats.length}
+              definition={{
+                description: "Número de clientes únicos con pedidos en el período seleccionado.",
+                formula: "COUNT(DISTINCT client_id) WHERE created_at IN período",
+                unit: "clientes",
+              }}
+              drilldownUrl="/masters/clients"
+              drilldownLabel="Ver clientes"
+              icon={Users}
+              accentColor="#ec4899"
+              iconBg="bg-gradient-to-br from-pink-500 to-rose-600"
             />
           </div>
           
           {/* ================================================================== */}
-          {/* CHARTS ROW */}
+          {/* MAIN CHARTS ROW - Trend + Status */}
           {/* ================================================================== */}
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Trend Chart */}
@@ -985,61 +1039,56 @@ export default function Analytics() {
             <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-amber-500" />
+                  <Activity className="h-5 w-5 text-amber-500" />
                   Estado de Pedidos
                 </CardTitle>
-                <CardDescription>Distribución actual por estado</CardDescription>
+                <CardDescription>Distribución en el período</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                <div className="flex flex-col items-center">
-                  {donutData.length > 0 ? (
-                    <>
-                      <DonutChart data={donutData} size={180} strokeWidth={20} />
-                      
-                      {/* Legend */}
-                      <div className="mt-6 w-full space-y-2">
-                        {statusDist.slice(0, 5).map((status) => {
-                          const config = STATUS_CONFIG[status.status] || { color: '#888', label: status.status };
-                          const percentage = totalStatusCount > 0 
-                            ? Math.round((status.count / totalStatusCount) * 100) 
-                            : 0;
-                          
-                          return (
-                            <div 
-                              key={status.status} 
-                              className="flex items-center justify-between text-sm py-1.5 px-2 rounded-lg hover:bg-muted/50 transition-colors"
-                            >
-                              <div className="flex items-center gap-2">
-                                <div 
-                                  className="w-3 h-3 rounded-full shadow-sm"
-                                  style={{ backgroundColor: config.color }}
-                                />
-                                <span className="font-medium">{config.label}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold">{status.count}</span>
-                                <span className="text-muted-foreground text-xs w-10 text-right">
-                                  {percentage}%
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                      <Activity className="h-12 w-12 mb-3 opacity-50" />
-                      <p>Sin datos de estado</p>
-                    </div>
-                  )}
-                </div>
+                <StatusBarChart 
+                  data={statusDist} 
+                  showTotal={true}
+                  maxItems={6}
+                />
               </CardContent>
             </Card>
           </div>
           
           {/* ================================================================== */}
-          {/* DETAILED SECTIONS */}
+          {/* PATTERNS ROW - Hourly + Weekday */}
+          {/* ================================================================== */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Hourly Pattern */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-cyan-500" />
+                  Patrón Horario
+                </CardTitle>
+                <CardDescription>Distribución de pedidos por hora del día</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <HourlyPatternChart data={hourlyPattern} />
+              </CardContent>
+            </Card>
+            
+            {/* Weekday Pattern */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-violet-500" />
+                  Patrón Semanal
+                </CardTitle>
+                <CardDescription>Distribución de pedidos por día de la semana</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <WeekdayPatternChart data={weekdayPattern} />
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* ================================================================== */}
+          {/* TOP CLIENTS + TOP DESTINATIONS */}
           {/* ================================================================== */}
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Top Clients */}
@@ -1051,9 +1100,7 @@ export default function Analytics() {
                       <Users className="h-5 w-5 text-blue-500" />
                       Top Clientes
                     </CardTitle>
-                    <CardDescription>
-                      Ranking por volumen de pedidos
-                    </CardDescription>
+                    <CardDescription>Ranking por volumen de pedidos</CardDescription>
                   </div>
                   <Badge variant="secondary" className="font-normal">
                     {clientStats.length} activos
@@ -1079,61 +1126,86 @@ export default function Analytics() {
                   )}
                   
                   {clientStats.length > 5 && (
-                    <Button variant="ghost" className="w-full mt-2 text-muted-foreground">
-                      Ver todos ({clientStats.length})
-                      <ChevronRight className="h-4 w-4 ml-1" />
+                    <Button variant="ghost" className="w-full mt-2 text-muted-foreground" asChild>
+                      <Link to="/masters/clients">
+                        Ver todos ({clientStats.length})
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Link>
                     </Button>
                   )}
                 </div>
               </CardContent>
             </Card>
             
-            {/* Regions */}
+            {/* Top Destinations */}
             <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
                     <CardTitle className="text-lg font-semibold flex items-center gap-2">
                       <MapPin className="h-5 w-5 text-emerald-500" />
-                      Distribución Geográfica
+                      Top Destinos
                     </CardTitle>
-                    <CardDescription>
-                      Entregas por comunidad autónoma
-                    </CardDescription>
+                    <CardDescription>Destinos más frecuentes</CardDescription>
                   </div>
                   <Badge variant="secondary" className="font-normal">
-                    {regionStats.length} regiones
+                    {topDestinations.length} destinos
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {regionStats.slice(0, 4).map((region, i) => (
-                    <RegionCard
-                      key={region.region}
-                      region={region}
-                      index={i}
-                      maxDeliveries={maxRegionDeliveries}
-                    />
-                  ))}
-                </div>
-                
-                {regionStats.length === 0 && (
-                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                    <MapPin className="h-12 w-12 mb-3 opacity-50" />
-                    <p>No hay datos de regiones</p>
-                  </div>
-                )}
-                
-                {regionStats.length > 4 && (
-                  <Button variant="ghost" className="w-full mt-4 text-muted-foreground">
-                    Ver todas ({regionStats.length})
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
-                )}
+                <TopDestinationsChart data={topDestinations} />
               </CardContent>
             </Card>
           </div>
+          
+          {/* ================================================================== */}
+          {/* GEOGRAPHIC DISTRIBUTION */}
+          {/* ================================================================== */}
+          <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                    <Globe2 className="h-5 w-5 text-teal-500" />
+                    Distribución Geográfica
+                  </CardTitle>
+                  <CardDescription>Entregas por región</CardDescription>
+                </div>
+                <Badge variant="secondary" className="font-normal">
+                  {regionStats.length} regiones
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {regionStats.slice(0, 8).map((region, i) => (
+                  <RegionCard
+                    key={region.region}
+                    region={region}
+                    index={i}
+                    maxDeliveries={maxRegionDeliveries}
+                  />
+                ))}
+              </div>
+              
+              {regionStats.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <MapPin className="h-12 w-12 mb-3 opacity-50" />
+                  <p>No hay datos de regiones</p>
+                </div>
+              )}
+              
+              {regionStats.length > 8 && (
+                <Button variant="ghost" className="w-full mt-4 text-muted-foreground" asChild>
+                  <Link to="/masters/remitentes">
+                    Ver todas ({regionStats.length})
+                    <ChevronRight className="h-4 w-4 ml-1" />
+                  </Link>
+                </Button>
+              )}
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

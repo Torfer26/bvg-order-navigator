@@ -100,7 +100,11 @@ export interface PeriodComparison {
 // ========== HELPER FUNCTIONS ==========
 
 function formatDateForQuery(date: Date): string {
-  return date.toISOString().split('T')[0];
+  // Use local date to avoid timezone issues
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function getDayName(dayOfWeek: number): string {
@@ -117,19 +121,22 @@ export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<Analytic
   const fromDate = formatDateForQuery(dateRange.from);
   const toDate = formatDateForQuery(dateRange.to);
   
+  console.log('[analyticsService] fetchAnalyticsKPIs called', { fromDate, toDate });
+  
   try {
     // Fetch orders in date range
     const ordersUrl = `${API_BASE_URL}/ordenes_intake?select=id,status,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`;
-    console.log('Fetching orders:', ordersUrl);
+    console.log('[analyticsService] Fetching orders:', ordersUrl);
     const ordersResponse = await bvgFetch(ordersUrl);
+    console.log('[analyticsService] Orders response status:', ordersResponse.status);
     
     if (!ordersResponse.ok) {
-      console.error('Orders fetch failed:', ordersResponse.status);
+      console.error('[analyticsService] Orders fetch failed:', ordersResponse.status);
       throw new Error('Failed to fetch orders');
     }
     
     const orders = await ordersResponse.json();
-    console.log('Orders fetched:', orders.length);
+    console.log('[analyticsService] Orders fetched:', orders.length);
     
     // Get order IDs for filtering lines
     const orderIds = orders.map((o: any) => o.id);
@@ -218,12 +225,33 @@ export async function fetchDailyTrend(dateRange: DateRange): Promise<DailyTrend[
     // Group orders by date
     const dailyMap = new Map<string, { orders: number; pallets: number; lines: number }>();
     
-    // Initialize all dates in range
-    const currentDate = new Date(dateRange.from);
-    while (currentDate <= dateRange.to) {
+    // Get today's date string for comparison
+    const today = new Date();
+    const todayStr = formatDateForQuery(today);
+    
+    // Initialize all dates in range - use string comparison to avoid timezone issues
+    const startStr = formatDateForQuery(dateRange.from);
+    const endStr = formatDateForQuery(dateRange.to);
+    
+    // Generate all dates from start to end (inclusive)
+    const currentDate = new Date(startStr + 'T12:00:00'); // Use noon to avoid timezone issues
+    const maxIterations = 100; // Safety limit
+    let iterations = 0;
+    
+    while (iterations < maxIterations) {
       const dateKey = formatDateForQuery(currentDate);
       dailyMap.set(dateKey, { orders: 0, pallets: 0, lines: 0 });
+      
+      // Stop if we've reached or passed the end date
+      if (dateKey >= endStr) break;
+      
       currentDate.setDate(currentDate.getDate() + 1);
+      iterations++;
+    }
+    
+    // ALWAYS include today if it's within range or is the end date
+    if (todayStr >= startStr && todayStr <= endStr && !dailyMap.has(todayStr)) {
+      dailyMap.set(todayStr, { orders: 0, pallets: 0, lines: 0 });
     }
     
     // Aggregate data
@@ -575,4 +603,275 @@ export async function fetchPeriodComparison(dateRange: DateRange): Promise<Perio
       deliveries: calcChange(current.totalDeliveries, previous.totalDeliveries),
     },
   };
+}
+
+// ========== NEW: PENDING LOCATION FUNCTIONS ==========
+
+export interface PendingLocationLine {
+  lineId: string;
+  orderId: string;
+  orderCode: string;
+  clientId: string;
+  clientName: string;
+  rawDestinationText: string;
+  rawCustomerText?: string;
+  pallets: number;
+  deliveryDate?: string;
+  createdAt: string;
+  suggestionsCount?: number;
+}
+
+/**
+ * Fetch lines pending location assignment for the analytics queue
+ */
+export async function fetchPendingLocationLinesForAnalytics(limit: number = 20): Promise<PendingLocationLine[]> {
+  try {
+    // Fetch lines and filter in JS (more reliable if column doesn't exist or has different values)
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,customer_name,raw_destination_text,raw_customer_text,pallets,delivery_date,location_status,location_suggestions&order=id.desc&limit=200`
+    );
+    
+    if (!linesResponse.ok) {
+      console.warn('Failed to fetch lines for pending locations:', linesResponse.status);
+      return [];
+    }
+    
+    const allLines = await linesResponse.json();
+    // Filter for PENDING_LOCATION in JS
+    const lines = allLines
+      .filter((l: any) => l.location_status === 'PENDING_LOCATION' || (!l.location_status && !l.destination_id))
+      .slice(0, limit);
+    
+    if (lines.length === 0) return [];
+    
+    // Get unique intake IDs to fetch order info
+    const intakeIds = [...new Set(lines.map((l: any) => l.intake_id))];
+    
+    // Fetch orders info
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?id=in.(${intakeIds.join(',')})&select=id,order_code,client_id,created_at`
+    );
+    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
+    const ordersMap = new Map(orders.map((o: any) => [String(o.id), o]));
+    
+    // Fetch clients map
+    const clientIds = [...new Set(orders.map((o: any) => o.client_id).filter(Boolean))];
+    let clientsMap: Map<string, string> = new Map();
+    
+    if (clientIds.length > 0) {
+      const clientsResponse = await bvgFetch(
+        `${API_BASE_URL}/customer_stg?select=id,description`
+      );
+      if (clientsResponse.ok) {
+        const clients = await clientsResponse.json();
+        clients.forEach((c: any) => {
+          clientsMap.set(c.id, c.description || `Cliente ${c.id}`);
+          // Also map numeric IDs
+          const numericId = parseInt(c.id, 10);
+          if (!isNaN(numericId)) {
+            clientsMap.set(String(numericId), c.description || `Cliente ${c.id}`);
+          }
+        });
+      }
+    }
+    
+    // Map to PendingLocationLine
+    return lines.map((line: any) => {
+      const order = ordersMap.get(String(line.intake_id)) || {};
+      const clientId = order.client_id ? String(order.client_id).padStart(5, '0') : '';
+      const clientName = clientsMap.get(clientId) || clientsMap.get(order.client_id) || `Cliente ${order.client_id || 'Desconocido'}`;
+      
+      return {
+        lineId: String(line.id),
+        orderId: String(line.intake_id),
+        orderCode: order.order_code || `ORD-${line.intake_id}`,
+        clientId: order.client_id || '',
+        clientName,
+        rawDestinationText: line.raw_destination_text || line.customer_name || 'Sin especificar',
+        rawCustomerText: line.raw_customer_text,
+        pallets: Number(line.pallets) || 0,
+        deliveryDate: line.delivery_date,
+        createdAt: order.created_at || new Date().toISOString(),
+        suggestionsCount: Array.isArray(line.location_suggestions) ? line.location_suggestions.length : 0,
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching pending location lines:', error);
+    return [];
+  }
+}
+
+// ========== NEW: BACKLOG AND AGING METRICS ==========
+
+export interface BacklogMetrics {
+  totalBacklog: number;
+  byCategory: {
+    pendingLocation: number;
+    pendingValidation: number;
+    pendingReview: number;
+    inProcessing: number;
+  };
+  agingDistribution: {
+    under24h: number;
+    between24and48h: number;
+    over48h: number;
+  };
+}
+
+/**
+ * Fetch backlog and aging metrics
+ */
+export async function fetchBacklogMetrics(): Promise<BacklogMetrics> {
+  try {
+    // Fetch all orders and filter in JS (more reliable than complex PostgREST filters)
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=id,status,created_at&limit=500`
+    );
+    
+    if (!ordersResponse.ok) {
+      console.error('Failed to fetch orders for backlog:', ordersResponse.status);
+      throw new Error('Failed to fetch orders for backlog');
+    }
+    
+    const allOrders = await ordersResponse.json();
+    // Filter non-completed orders in JS
+    const orders = allOrders.filter((o: any) => 
+      o.status !== 'COMPLETED' && o.status !== 'REJECTED'
+    );
+    
+    // Fetch lines for pending location count - handle missing column gracefully
+    let pendingLines: any[] = [];
+    try {
+      const linesResponse = await bvgFetch(
+        `${API_BASE_URL}/ordenes_intake_lineas?select=id,location_status&limit=1000`
+      );
+      if (linesResponse.ok) {
+        const allLines = await linesResponse.json();
+        pendingLines = allLines.filter((l: any) => l.location_status === 'PENDING_LOCATION');
+      }
+    } catch (e) {
+      console.warn('Could not fetch pending location lines:', e);
+    }
+    
+    const now = new Date();
+    const h24Ago = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const h48Ago = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    
+    // Calculate categories
+    const byStatus = orders.reduce((acc: Record<string, number>, order: any) => {
+      acc[order.status] = (acc[order.status] || 0) + 1;
+      return acc;
+    }, {});
+    
+    // Calculate aging
+    let under24h = 0;
+    let between24and48h = 0;
+    let over48h = 0;
+    
+    orders.forEach((order: any) => {
+      const createdAt = new Date(order.created_at);
+      if (createdAt >= h24Ago) {
+        under24h++;
+      } else if (createdAt >= h48Ago) {
+        between24and48h++;
+      } else {
+        over48h++;
+      }
+    });
+    
+    return {
+      totalBacklog: orders.length,
+      byCategory: {
+        pendingLocation: pendingLines.length,
+        pendingValidation: (byStatus['VALIDATING'] || 0) + (byStatus['PARSING'] || 0),
+        pendingReview: (byStatus['IN_REVIEW'] || 0) + (byStatus['AWAITING_INFO'] || 0),
+        inProcessing: byStatus['PROCESSING'] || 0,
+      },
+      agingDistribution: {
+        under24h,
+        between24and48h,
+        over48h,
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching backlog metrics:', error);
+    return {
+      totalBacklog: 0,
+      byCategory: {
+        pendingLocation: 0,
+        pendingValidation: 0,
+        pendingReview: 0,
+        inProcessing: 0,
+      },
+      agingDistribution: {
+        under24h: 0,
+        between24and48h: 0,
+        over48h: 0,
+      },
+    };
+  }
+}
+
+// ========== NEW: FETCH UNIQUE CLIENTS AND REGIONS FOR FILTERS ==========
+
+export interface FilterOption {
+  id: string;
+  name: string;
+}
+
+/**
+ * Fetch unique clients for filter dropdown
+ */
+export async function fetchClientsForFilter(): Promise<FilterOption[]> {
+  try {
+    // Simple query without complex filters that might fail
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_stg?select=id,description&limit=100`
+    );
+    
+    if (!response.ok) {
+      console.warn('Failed to fetch clients for filter:', response.status);
+      return [];
+    }
+    
+    const clients = await response.json();
+    return clients
+      .filter((c: any) => c.description) // Only clients with names
+      .map((c: any) => ({
+        id: c.id,
+        name: c.description || `Cliente ${c.id}`,
+      }))
+      .sort((a: FilterOption, b: FilterOption) => a.name.localeCompare(b.name));
+  } catch (error) {
+    console.error('Error fetching clients for filter:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch unique regions for filter dropdown
+ */
+export async function fetchRegionsForFilter(): Promise<FilterOption[]> {
+  try {
+    // Simple query - filter nulls in JS
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_location_stg?select=region&limit=500`
+    );
+    
+    if (!response.ok) {
+      console.warn('Failed to fetch regions for filter:', response.status);
+      return [];
+    }
+    
+    const locations = await response.json();
+    const uniqueRegions = [...new Set(locations.map((l: any) => l.region).filter(Boolean))];
+    
+    return uniqueRegions.sort().map((region) => ({
+      id: region as string,
+      name: region as string,
+    }));
+  } catch (error) {
+    console.error('Error fetching regions for filter:', error);
+    return [];
+  }
 }
