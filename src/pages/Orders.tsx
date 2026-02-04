@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Loader2 } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Loader2, X } from 'lucide-react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { fetchOrders, fetchClients } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderFilters, Client } from '@/types';
@@ -15,14 +17,24 @@ const PAGE_SIZE = 10;
 
 export default function Orders() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
+
+  // Read URL params for filtering
+  const urlStatus = searchParams.get('status');
+  const urlLocationStatus = searchParams.get('locationStatus');
 
   const [filters, setFilters] = useState<OrderFilters>({});
   const [page, setPage] = useState(1);
   const [orders, setOrders] = useState<OrderIntake[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Clear URL filter
+  const clearUrlFilter = () => {
+    setSearchParams({});
+  };
 
   useEffect(() => {
     async function loadData() {
@@ -82,9 +94,23 @@ export default function Orders() {
     return orders.filter((order) => {
       if (filters.clientId && order.clientId !== filters.clientId) return false;
 
-      // Status filtering now handled by Tabs (or explicit filter if kept)
-      // We will map the tab value to status groups
-      if (filters.status) {
+      // URL status filter (exact match, case-insensitive)
+      if (urlStatus) {
+        const orderStatus = order.status?.toUpperCase();
+        const filterStatus = urlStatus.toUpperCase();
+        
+        // Handle grouped statuses
+        if (filterStatus === 'VALIDATING') {
+          // Include both VALIDATING and IN_REVIEW
+          if (!['VALIDATING', 'IN_REVIEW'].includes(orderStatus)) return false;
+        } else {
+          // Exact match for other statuses
+          if (orderStatus !== filterStatus) return false;
+        }
+      }
+
+      // Tab-based status filtering (legacy)
+      if (filters.status && !urlStatus) {
         const s = filters.status;
         const orderStatus = order.status?.toLowerCase();
         if (s === 'pending') {
@@ -95,6 +121,8 @@ export default function Orders() {
           if (orderStatus !== 'completed') return false;
         } else if (s === 'error') {
           if (orderStatus !== 'error') return false;
+        } else if (s === 'rejected') {
+          if (orderStatus !== 'rejected') return false;
         }
       }
 
@@ -121,7 +149,7 @@ export default function Orders() {
       }
       return true;
     });
-  }, [orders, filters]);
+  }, [orders, filters, urlStatus]);
 
   const paginatedOrders = useMemo(() => {
     const start = (page - 1) * PAGE_SIZE;
@@ -203,12 +231,44 @@ export default function Orders() {
     );
   }
 
+  // Status labels for URL filter badge
+  const statusLabels: Record<string, string> = {
+    'RECEIVED': 'Recibidos',
+    'VALIDATING': 'Validando',
+    'IN_REVIEW': 'En Revisión',
+    'PROCESSING': 'Procesando',
+    'COMPLETED': 'Completados',
+    'REJECTED': 'Rechazados',
+    'ERROR': 'Con Error',
+  };
+
   return (
     <div className="space-y-6">
       <div className="page-header">
         <h1 className="page-title">{t.orders.title}</h1>
         <p className="page-description">{t.orders.subtitle}</p>
       </div>
+
+      {/* URL Filter indicator */}
+      {urlStatus && (
+        <div className="flex items-center gap-2 p-3 bg-primary/5 border border-primary/20 rounded-lg">
+          <span className="text-sm text-muted-foreground">Filtro activo:</span>
+          <Badge variant="secondary" className="gap-1">
+            {statusLabels[urlStatus.toUpperCase()] || urlStatus}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-4 w-4 p-0 hover:bg-transparent"
+              onClick={clearUrlFilter}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </Badge>
+          <span className="text-sm text-muted-foreground">
+            ({filteredOrders.length} {filteredOrders.length === 1 ? 'pedido' : 'pedidos'})
+          </span>
+        </div>
+      )}
 
       <Tabs
         defaultValue="all"

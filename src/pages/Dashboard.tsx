@@ -43,6 +43,8 @@ export default function Dashboard() {
     ordersInValidation: 0,
     ordersProcessing: 0,
     ordersReceived: 0,
+    ordersRejected: 0,
+    ordersCompleted: 0,
   });
   const [recentOrders, setRecentOrders] = useState<OrderIntake[]>([]);
   const [pendingDLQ, setPendingDLQ] = useState<DLQOrder[]>([]);
@@ -286,7 +288,7 @@ export default function Dashboard() {
             Estado del Pipeline
           </h2>
         </div>
-        <div className="grid gap-4 p-5 sm:grid-cols-4">
+        <div className="grid gap-4 p-5 sm:grid-cols-5">
           <Link to="/orders?status=RECEIVED" className="group rounded-lg border p-4 transition-colors hover:bg-muted/50">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Recibidos</span>
@@ -332,20 +334,35 @@ export default function Dashboard() {
             </div>
           </Link>
           
-          <div className="rounded-lg border border-green-200 bg-green-50/50 p-4">
+          <Link to="/orders?status=COMPLETED" className="group rounded-lg border border-green-200 bg-green-50/30 p-4 transition-colors hover:bg-green-50/50">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-green-700">Tasa de Éxito</span>
+              <span className="text-sm text-green-700">Completados</span>
               <Badge variant="outline" className="bg-green-100 text-green-700 border-green-200">
-                {kpis.successRate.toFixed(0)}%
+                {kpis.ordersCompleted}
               </Badge>
             </div>
             <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-green-100">
               <div 
                 className="h-full bg-green-500 transition-all" 
-                style={{ width: `${kpis.successRate}%` }}
+                style={{ width: `${kpis.ordersWeek > 0 ? (kpis.ordersCompleted / kpis.ordersWeek) * 100 : 0}%` }}
               />
             </div>
-          </div>
+          </Link>
+          
+          <Link to="/orders?status=REJECTED" className="group rounded-lg border border-red-200 bg-red-50/30 p-4 transition-colors hover:bg-red-50/50">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-red-700">Rechazados</span>
+              <Badge variant="outline" className="bg-red-100 text-red-700 border-red-200">
+                {kpis.ordersRejected}
+              </Badge>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-red-100">
+              <div 
+                className="h-full bg-red-500 transition-all" 
+                style={{ width: `${kpis.ordersWeek > 0 ? (kpis.ordersRejected / kpis.ordersWeek) * 100 : 0}%` }}
+              />
+            </div>
+          </Link>
         </div>
       </div>
 

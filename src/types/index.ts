@@ -173,6 +173,8 @@ export interface DashboardKPIs {
   ordersInValidation: number; // Pedidos en VALIDATING/IN_REVIEW
   ordersProcessing: number; // Pedidos en PROCESSING
   ordersReceived: number; // Pedidos en RECEIVED
+  ordersRejected: number; // Pedidos en REJECTED
+  ordersCompleted: number; // Pedidos en COMPLETED
 }
 
 // Audit Types

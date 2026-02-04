@@ -1,42 +1,69 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { 
   Mail, 
   FileText, 
-  AlertCircle, 
+  FileSpreadsheet,
+  File,
   CheckCircle2, 
   Loader2,
-  TrendingUp,
-  Filter,
-  Download
+  Calendar,
+  ArrowRight,
+  RefreshCw,
+  Search,
+  Clock,
+  User,
+  Paperclip,
+  ExternalLink
 } from 'lucide-react';
 import { KPICard } from '@/components/shared/KPICard';
 import { Button } from '@/components/ui/button';
-import { fetchEmailStats, fetchEmailTriage } from '@/lib/ordersService';
-import { format } from 'date-fns';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { fetchEmailStats, fetchOrders } from '@/lib/ordersService';
+import { format, formatDistanceToNow, subDays, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+interface EmailRecord {
+  id: string;
+  receivedAt: string;
+  messageId: string;
+  fromAddress: string;
+  fromDomain: string;
+  subject: string;
+  hasAttachments: boolean;
+  attachmentsPdf: number;
+  attachmentsExcel: number;
+  attachmentsOther: number;
+  customerName?: string;
+  status?: string;
+  source?: string;
+  isProcessedAsOrder: boolean;
+}
+
 export default function EmailMonitoring() {
-  const [emailStats, setEmailStats] = useState<any[]>([]);
-  const [emailTriage, setEmailTriage] = useState<any[]>([]);
+  const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'orders' | 'other'>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | '7d' | '30d' | 'all'>('7d');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const loadData = async (showRefreshing = false) => {
+    if (showRefreshing) setRefreshing(true);
+    else setLoading(true);
+    
+    try {
+      const data = await fetchEmailStats();
+      setEmails(data);
+    } catch (error) {
+      console.error('Error loading email monitoring data:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [stats, triage] = await Promise.all([
-          fetchEmailStats(),
-          fetchEmailTriage(),
-        ]);
-        setEmailStats(stats);
-        setEmailTriage(triage);
-      } catch (error) {
-        console.error('Error loading email monitoring data:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadData();
   }, []);
 
@@ -48,100 +75,191 @@ export default function EmailMonitoring() {
     );
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const statsToday = emailStats.filter((s) => new Date(s.receivedAt) >= today);
-  const triageToday = emailTriage.filter((t) => new Date(t.createdAt) >= today);
-  const orderEmailsToday = triageToday.filter((t) => t.isOrderEmail).length;
-  const totalWithAttachments = statsToday.filter((s) => s.hasAttachments).length;
+  // Date filters
+  const today = startOfDay(new Date());
+  const weekAgo = subDays(today, 7);
+  const monthAgo = subDays(today, 30);
 
-  // Get filtered emails
-  const filteredEmails = selectedFilter === 'all' 
-    ? emailStats
-    : selectedFilter === 'orders'
-    ? emailStats.filter((s) => {
-        const triage = emailTriage.find((t) => t.messageId === s.messageId);
-        return triage?.isOrderEmail;
-      })
-    : emailStats.filter((s) => {
-        const triage = emailTriage.find((t) => t.messageId === s.messageId);
-        return !triage?.isOrderEmail;
-      });
+  const getFilteredByPeriod = (data: EmailRecord[]) => {
+    switch (selectedPeriod) {
+      case 'today':
+        return data.filter(e => new Date(e.receivedAt) >= today);
+      case '7d':
+        return data.filter(e => new Date(e.receivedAt) >= weekAgo);
+      case '30d':
+        return data.filter(e => new Date(e.receivedAt) >= monthAgo);
+      default:
+        return data;
+    }
+  };
+
+  const periodEmails = getFilteredByPeriod(emails);
+  
+  // Search filter
+  const filteredEmails = searchQuery
+    ? periodEmails.filter(e => 
+        e.subject?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.fromAddress?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        e.customerName?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : periodEmails;
+
+  // Calculate KPIs from real data
+  const emailsToday = emails.filter(e => new Date(e.receivedAt) >= today).length;
+  const emailsYesterday = emails.filter(e => {
+    const date = new Date(e.receivedAt);
+    const yesterday = subDays(today, 1);
+    return date >= yesterday && date < today;
+  }).length;
+
+  const withAttachments = periodEmails.filter(e => e.hasAttachments).length;
+  const withExcel = periodEmails.filter(e => e.attachmentsExcel > 0).length;
+  const withPdf = periodEmails.filter(e => e.attachmentsPdf > 0).length;
+  
+  const totalExcel = periodEmails.reduce((acc, e) => acc + e.attachmentsExcel, 0);
+  const totalPdf = periodEmails.reduce((acc, e) => acc + e.attachmentsPdf, 0);
+  const totalOther = periodEmails.reduce((acc, e) => acc + e.attachmentsOther, 0);
+
+  // Unique senders
+  const uniqueSenders = new Set(periodEmails.map(e => e.fromAddress).filter(Boolean)).size;
+  
+  // Unique customers
+  const uniqueCustomers = new Set(periodEmails.map(e => e.customerName).filter(Boolean)).size;
+
+  // Period label
+  const periodLabel = selectedPeriod === 'today' ? 'hoy' : 
+                      selectedPeriod === '7d' ? 'últimos 7 días' : 
+                      selectedPeriod === '30d' ? 'últimos 30 días' : 'total';
 
   return (
     <div className="space-y-6">
-      <div className="page-header">
-        <h1 className="page-title flex items-center gap-2">
-          <Mail className="h-7 w-7" />
-          Monitorización de Emails
-        </h1>
-        <p className="page-description">
-          Análisis de emails recibidos y clasificación automática
-        </p>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div className="page-header">
+          <h1 className="page-title flex items-center gap-2">
+            <Mail className="h-7 w-7" />
+            Emails Procesados
+          </h1>
+          <p className="page-description">
+            Emails recibidos que han sido procesados como pedidos
+          </p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => loadData(true)}
+          disabled={refreshing}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+          Actualizar
+        </Button>
+      </div>
+
+      {/* Period Selector */}
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">Periodo:</span>
+        <div className="flex gap-1">
+          {[
+            { value: 'today', label: 'Hoy' },
+            { value: '7d', label: '7 días' },
+            { value: '30d', label: '30 días' },
+            { value: 'all', label: 'Todo' },
+          ].map(({ value, label }) => (
+            <Button
+              key={value}
+              variant={selectedPeriod === value ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setSelectedPeriod(value as any)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPICard
           title="Emails Hoy"
-          value={statsToday.length}
+          value={emailsToday}
           icon={Mail}
-          subtitle={`${emailStats.length} total`}
+          subtitle={`${periodEmails.length} ${periodLabel}`}
+          trend={emailsYesterday > 0 ? {
+            value: Math.abs(Math.round(((emailsToday - emailsYesterday) / emailsYesterday) * 100)),
+            isPositive: emailsToday >= emailsYesterday
+          } : undefined}
         />
         <KPICard
-          title="Emails de Pedidos"
-          value={orderEmailsToday}
-          icon={FileText}
-          subtitle="Clasificados automáticamente"
+          title="Con Excel/CSV"
+          value={withExcel}
+          icon={FileSpreadsheet}
+          subtitle={`${totalExcel} archivos en total`}
           iconClassName="bg-success/10"
         />
         <KPICard
-          title="Con Adjuntos"
-          value={totalWithAttachments}
-          icon={CheckCircle2}
-          subtitle={`${((totalWithAttachments / statsToday.length) * 100).toFixed(0)}% del total`}
+          title="Con PDF"
+          value={withPdf}
+          icon={FileText}
+          subtitle={`${totalPdf} archivos en total`}
           iconClassName="bg-info/10"
         />
         <KPICard
-          title="Otros Emails"
-          value={triageToday.length - orderEmailsToday}
-          icon={AlertCircle}
-          subtitle="No clasificados como pedidos"
-          iconClassName="bg-warning/10"
+          title="Remitentes Únicos"
+          value={uniqueSenders}
+          icon={User}
+          subtitle={`${uniqueCustomers} clientes identificados`}
+          iconClassName="bg-primary/10"
         />
       </div>
 
-      {/* Email Types Distribution */}
+      {/* Attachment Distribution */}
       <div className="section-card">
         <div className="section-header">
-          <h2 className="section-title">Distribución de Tipos de Adjuntos</h2>
+          <h2 className="section-title flex items-center gap-2">
+            <Paperclip className="h-5 w-5" />
+            Distribución de Adjuntos ({periodLabel})
+          </h2>
         </div>
         <div className="grid gap-4 sm:grid-cols-3 p-5">
-          <div className="space-y-2">
-            <div className="text-sm text-muted-foreground">Excel / CSV</div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-semibold text-success">
-                {statsToday.reduce((acc, s) => acc + s.attachmentsExcel, 0)}
-              </span>
-              <span className="text-sm text-muted-foreground">archivos</span>
+          <div className="rounded-lg border border-green-200 bg-green-50/50 p-4">
+            <div className="flex items-center gap-2 text-sm text-green-700">
+              <FileSpreadsheet className="h-4 w-4" />
+              Excel / CSV
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-green-700">{totalExcel}</span>
+              <span className="text-sm text-green-600">archivos</span>
+            </div>
+            <div className="mt-1 text-xs text-green-600">
+              {withExcel} emails con adjuntos Excel
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="text-sm text-muted-foreground">PDF</div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-semibold text-info">
-                {statsToday.reduce((acc, s) => acc + s.attachmentsPdf, 0)}
-              </span>
-              <span className="text-sm text-muted-foreground">archivos</span>
+          
+          <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4">
+            <div className="flex items-center gap-2 text-sm text-blue-700">
+              <FileText className="h-4 w-4" />
+              PDF
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-blue-700">{totalPdf}</span>
+              <span className="text-sm text-blue-600">archivos</span>
+            </div>
+            <div className="mt-1 text-xs text-blue-600">
+              {withPdf} emails con adjuntos PDF
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="text-sm text-muted-foreground">Otros</div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-3xl font-semibold text-warning">
-                {statsToday.reduce((acc, s) => acc + s.attachmentsOther, 0)}
-              </span>
-              <span className="text-sm text-muted-foreground">archivos</span>
+          
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+            <div className="flex items-center gap-2 text-sm text-slate-700">
+              <File className="h-4 w-4" />
+              Otros
+            </div>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-3xl font-semibold text-slate-700">{totalOther}</span>
+              <span className="text-sm text-slate-600">archivos</span>
+            </div>
+            <div className="mt-1 text-xs text-slate-600">
+              Imágenes, documentos, etc.
             </div>
           </div>
         </div>
@@ -150,87 +268,101 @@ export default function EmailMonitoring() {
       {/* Email List */}
       <div className="section-card">
         <div className="section-header">
-          <h2 className="section-title">Emails Recibidos</h2>
-          <div className="flex gap-2">
-            <Button
-              variant={selectedFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedFilter('all')}
-            >
-              Todos
-            </Button>
-            <Button
-              variant={selectedFilter === 'orders' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedFilter('orders')}
-            >
-              Pedidos
-            </Button>
-            <Button
-              variant={selectedFilter === 'other' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setSelectedFilter('other')}
-            >
-              Otros
-            </Button>
+          <h2 className="section-title flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            Emails Procesados
+            <Badge variant="secondary" className="ml-2">
+              {filteredEmails.length}
+            </Badge>
+          </h2>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por asunto, remitente, cliente..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 w-64"
+              />
+            </div>
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b border-border bg-muted/50">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Remitente</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Asunto</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Tipo</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Adjuntos</th>
-                <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {filteredEmails.slice(0, 50).map((email) => {
-                const triage = emailTriage.find((t) => t.messageId === email.messageId);
-                return (
+        
+        {filteredEmails.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Mail className="h-12 w-12 text-muted-foreground/30" />
+            <p className="mt-3 font-medium">No hay emails en este periodo</p>
+            <p className="text-sm text-muted-foreground">
+              {searchQuery ? 'Intenta con otros términos de búsqueda' : 'Selecciona otro rango de fechas'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b border-border bg-muted/50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Fecha</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Remitente</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Asunto</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Adjuntos</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Cliente</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Estado</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {filteredEmails.slice(0, 50).map((email) => (
                   <tr key={email.id} className="hover:bg-muted/50 transition-colors">
-                    <td className="px-4 py-3 text-sm">
-                      {format(new Date(email.receivedAt), 'dd/MM/yyyy HH:mm', { locale: es })}
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <div>
+                          <div className="font-medium">
+                            {format(new Date(email.receivedAt), 'dd MMM yyyy', { locale: es })}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {format(new Date(email.receivedAt), 'HH:mm')}
+                          </div>
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <div className="font-medium">{email.fromAddress}</div>
-                      <div className="text-xs text-muted-foreground">{email.fromDomain}</div>
-                    </td>
-                    <td className="px-4 py-3 text-sm max-w-xs truncate">
-                      {email.subject}
-                    </td>
-                    <td className="px-4 py-3">
-                      {triage?.isOrderEmail ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-success/10 text-success">
-                          <FileText className="h-3 w-3" />
-                          Pedido
-                        </span>
+                      {email.fromAddress ? (
+                        <div>
+                          <div className="font-medium truncate max-w-[200px]">{email.fromAddress}</div>
+                          {email.fromDomain && (
+                            <div className="text-xs text-muted-foreground">{email.fromDomain}</div>
+                          )}
+                        </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-muted text-muted-foreground">
-                          Otro
-                        </span>
+                        <span className="text-muted-foreground">No disponible</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
+                      <div className="max-w-xs truncate" title={email.subject}>
+                        {email.subject || '(Sin asunto)'}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
                       {email.hasAttachments ? (
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           {email.attachmentsExcel > 0 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-success/10 text-success">
-                              Excel: {email.attachmentsExcel}
-                            </span>
+                            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                              <FileSpreadsheet className="h-3 w-3 mr-1" />
+                              {email.attachmentsExcel}
+                            </Badge>
                           )}
                           {email.attachmentsPdf > 0 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-info/10 text-info">
-                              PDF: {email.attachmentsPdf}
-                            </span>
+                            <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                              <FileText className="h-3 w-3 mr-1" />
+                              {email.attachmentsPdf}
+                            </Badge>
                           )}
                           {email.attachmentsOther > 0 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning">
-                              Otro: {email.attachmentsOther}
-                            </span>
+                            <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200">
+                              <File className="h-3 w-3 mr-1" />
+                              {email.attachmentsOther}
+                            </Badge>
                           )}
                         </div>
                       ) : (
@@ -238,14 +370,49 @@ export default function EmailMonitoring() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      {email.customerName || <span className="text-muted-foreground">-</span>}
+                      {email.customerName ? (
+                        <div className="font-medium text-primary truncate max-w-[150px]" title={email.customerName}>
+                          {email.customerName}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {email.status && (
+                        <Badge 
+                          variant="outline" 
+                          className={
+                            email.status === 'COMPLETED' || email.status === 'PROCESSING' 
+                              ? 'bg-green-50 text-green-700 border-green-200'
+                              : email.status === 'ERROR'
+                              ? 'bg-red-50 text-red-700 border-red-200'
+                              : 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                          }
+                        >
+                          {email.status}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link to={`/orders/${email.id}`} className="gap-1">
+                          <ExternalLink className="h-4 w-4" />
+                        </Link>
+                      </Button>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+            
+            {filteredEmails.length > 50 && (
+              <div className="px-4 py-3 text-center text-sm text-muted-foreground border-t">
+                Mostrando 50 de {filteredEmails.length} emails
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

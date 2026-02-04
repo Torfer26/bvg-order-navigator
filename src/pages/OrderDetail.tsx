@@ -12,14 +12,46 @@ import {
   Loader2,
   Send,
   MapPin,
-  AlertTriangle
+  AlertTriangle,
+  MoreHorizontal,
+  Ban,
+  Eye,
+  Check
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { LocationSelectorModal } from '@/components/shared/LocationSelectorModal';
-import { fetchOrders, fetchOrdersLog, fetchOrderLines, approveOrderForFTP } from '@/lib/ordersService';
+import { 
+  fetchOrders, 
+  fetchOrdersLog, 
+  fetchOrderLines, 
+  approveOrderForFTP,
+  markOrderCompleted,
+  rejectOrder,
+  moveOrderToReview,
+  fetchClientWithDefaultLocation,
+  type ClientWithDefaultLocation
+} from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderLine, OrderEvent, Location } from '@/types';
 import { format } from 'date-fns';
@@ -34,6 +66,7 @@ export default function OrderDetail() {
   const dateLocale = language === 'es' ? es : it;
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [order, setOrder] = useState<OrderIntake | null>(null);
   const [events, setEvents] = useState<OrderEvent[]>([]);
   const [lines, setLines] = useState<OrderLine[]>([]);
@@ -42,6 +75,12 @@ export default function OrderDetail() {
   // Location selector modal state
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [selectedLineForLocation, setSelectedLineForLocation] = useState<OrderLine | null>(null);
+  // Status change dialogs
+  const [showRejectDialog, setShowRejectDialog] = useState(false);
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  // Client info with default load location
+  const [clientInfo, setClientInfo] = useState<ClientWithDefaultLocation | null>(null);
 
   // Fetch order data from API
   // Function to load order data (can be called for refresh)
@@ -59,6 +98,16 @@ export default function OrderDetail() {
 
       if (foundOrder) {
         setOrder(foundOrder);
+
+        // Fetch client info with default load location
+        console.log('[OrderDetail] foundOrder.clientId:', foundOrder.clientId);
+        if (foundOrder.clientId) {
+          const clientData = await fetchClientWithDefaultLocation(foundOrder.clientId);
+          console.log('[OrderDetail] clientData:', clientData);
+          setClientInfo(clientData);
+        } else {
+          console.log('[OrderDetail] No clientId found on order');
+        }
 
         // Fetch order lines from ordenes_intake_lineas
         const orderLines = await fetchOrderLines(id);
@@ -184,6 +233,75 @@ export default function OrderDetail() {
       toast.error(t.orders?.approveError || 'Error al autorizar pedido');
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  // Handle marking order as completed
+  const handleMarkCompleted = async () => {
+    if (!order) return;
+    
+    setIsUpdatingStatus(true);
+    try {
+      const result = await markOrderCompleted(order.id);
+      if (result.success) {
+        toast.success('Pedido marcado como completado');
+        setOrder(prev => prev ? ({ ...prev, status: 'COMPLETED' }) : null);
+        setShowCompleteDialog(false);
+        setTimeout(() => fetchOrderData(false), 1000);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error('Error al marcar como completado');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Handle rejecting/canceling order
+  const handleRejectOrder = async () => {
+    if (!order || !rejectReason.trim()) {
+      toast.error('Por favor, introduce un motivo para rechazar el pedido');
+      return;
+    }
+    
+    setIsUpdatingStatus(true);
+    try {
+      const result = await rejectOrder(order.id, rejectReason);
+      if (result.success) {
+        toast.success('Pedido rechazado');
+        setOrder(prev => prev ? ({ ...prev, status: 'REJECTED' }) : null);
+        setShowRejectDialog(false);
+        setRejectReason('');
+        setTimeout(() => fetchOrderData(false), 1000);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error('Error al rechazar pedido');
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
+  // Handle moving order back to review
+  const handleMoveToReview = async () => {
+    if (!order) return;
+    
+    setIsUpdatingStatus(true);
+    try {
+      const result = await moveOrderToReview(order.id);
+      if (result.success) {
+        toast.success('Pedido movido a revisión');
+        setOrder(prev => prev ? ({ ...prev, status: 'IN_REVIEW' }) : null);
+        setTimeout(() => fetchOrderData(false), 1000);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      toast.error('Error al mover a revisión');
+    } finally {
+      setIsUpdatingStatus(false);
     }
   };
 
@@ -329,6 +447,8 @@ export default function OrderDetail() {
     sent: CheckCircle2,
     error: AlertCircle,
     reprocessed: RefreshCw,
+    status_change: Ban,
+    completed: Check,
   };
 
   const eventLabels: Record<string, string> = {
@@ -338,6 +458,8 @@ export default function OrderDetail() {
     sent: t.orderEvents.sent,
     error: t.orderEvents.error,
     reprocessed: t.orderEvents.reprocessed,
+    status_change: 'Cambio de estado',
+    completed: 'Completado',
   };
 
   return (
@@ -356,6 +478,17 @@ export default function OrderDetail() {
               <OrderStatusBadge status={order.status} />
             </div>
             <p className="text-muted-foreground">{order.clientName}</p>
+            {/* Client and Default Load Location */}
+            {clientInfo && clientInfo.defaultLoadLocation && (
+              <div className="flex items-center gap-2 mt-1 text-sm text-blue-600">
+                <MapPin className="h-4 w-4" />
+                <span className="font-medium">Ubicación de Carga:</span>
+                <span>{clientInfo.defaultLoadLocation.name}</span>
+                <span className="text-muted-foreground">
+                  ({clientInfo.defaultLoadLocation.city})
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -391,6 +524,178 @@ export default function OrderDetail() {
                 : (t.orders?.approveAndSend || 'Autorizar y Enviar')}
             </Button>
           )}
+
+        {/* Menú de acciones adicionales */}
+        {hasRole(['admin', 'ops']) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="icon" disabled={isUpdatingStatus}>
+                {isUpdatingStatus ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MoreHorizontal className="h-4 w-4" />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {/* Mover a revisión - disponible si está en PROCESSING o ERROR */}
+              {(order.status === 'PROCESSING' || order.status === 'ERROR') && (
+                <DropdownMenuItem onClick={handleMoveToReview}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Mover a Revisión
+                </DropdownMenuItem>
+              )}
+              
+              {/* Marcar como completado - disponible si está en PROCESSING */}
+              {order.status === 'PROCESSING' && (
+                <DropdownMenuItem onClick={() => setShowCompleteDialog(true)}>
+                  <Check className="mr-2 h-4 w-4 text-green-600" />
+                  Marcar como Completado
+                </DropdownMenuItem>
+              )}
+
+              <DropdownMenuSeparator />
+              
+              {/* Rechazar/Anular - disponible si NO está completado o ya rechazado */}
+              {order.status !== 'COMPLETED' && order.status !== 'REJECTED' && (
+                <DropdownMenuItem 
+                  onClick={() => setShowRejectDialog(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Ban className="mr-2 h-4 w-4" />
+                  Rechazar / Anular Pedido
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* Dialog para confirmar completado */}
+      <AlertDialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Marcar como Completado</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Estás seguro de que deseas marcar el pedido <strong>{order.orderCode}</strong> como completado?
+              <br /><br />
+              Esto indica que el pedido ha sido procesado y enviado correctamente.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdatingStatus}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleMarkCompleted}
+              disabled={isUpdatingStatus}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {isUpdatingStatus ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Check className="mr-2 h-4 w-4" />
+              )}
+              Confirmar Completado
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Dialog para rechazar pedido */}
+      <AlertDialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rechazar / Anular Pedido</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                <p>
+                  ¿Estás seguro de que deseas rechazar el pedido <strong>{order.orderCode}</strong>?
+                </p>
+                <div>
+                  <label className="text-sm font-medium">Motivo del rechazo:</label>
+                  <Textarea
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Escribe el motivo por el que se rechaza este pedido..."
+                    className="mt-2"
+                    rows={3}
+                  />
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdatingStatus}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleRejectOrder}
+              disabled={isUpdatingStatus || !rejectReason.trim()}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isUpdatingStatus ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Ban className="mr-2 h-4 w-4" />
+              )}
+              Rechazar Pedido
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Client and Load Location Info - Always visible */}
+      <div className="section-card bg-gradient-to-r from-blue-50 to-slate-50 border-blue-200">
+        <div className="p-4">
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Client Info */}
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
+                <User className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Cliente</p>
+                <p className="font-semibold text-lg">
+                  {clientInfo?.name || order.clientName || 'Sin cliente'}
+                </p>
+                {clientInfo?.address && (
+                  <p className="text-sm text-muted-foreground">{clientInfo.address}</p>
+                )}
+              </div>
+            </div>
+
+            {/* Default Load Location */}
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+                <MapPin className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-muted-foreground">Ubicación de Carga</p>
+                  {clientInfo?.defaultLoadLocation && (
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">
+                      Predeterminada
+                    </Badge>
+                  )}
+                </div>
+                {clientInfo?.defaultLoadLocation ? (
+                  <>
+                    <p className="font-semibold text-lg">{clientInfo.defaultLoadLocation.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {clientInfo.defaultLoadLocation.address}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {clientInfo.defaultLoadLocation.zipCode && `${clientInfo.defaultLoadLocation.zipCode} `}
+                      {clientInfo.defaultLoadLocation.city}
+                      {clientInfo.defaultLoadLocation.region && ` (${clientInfo.defaultLoadLocation.region})`}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">
+                    No configurada
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Order Info */}
@@ -435,23 +740,63 @@ export default function OrderDetail() {
               {events.map((event, index) => {
                 const Icon = eventTypeIcons[event.eventType] || Clock;
                 const isError = event.eventType === 'error';
+                const isStatusChange = event.eventType === 'status_change';
                 const isLast = index === events.length - 1;
+
+                // Parse status change details
+                let statusChangeInfo = null;
+                if (isStatusChange && event.details) {
+                  try {
+                    const info = typeof event.details === 'string' ? JSON.parse(event.details) : event.details;
+                    const statusLabels: Record<string, string> = {
+                      'REJECTED': 'Rechazado',
+                      'COMPLETED': 'Completado',
+                      'IN_REVIEW': 'En revisión',
+                      'APPROVED': 'Aprobado',
+                      'PROCESSING': 'Procesando',
+                    };
+                    statusChangeInfo = {
+                      status: statusLabels[info.new_status] || info.new_status,
+                      reason: info.reason,
+                    };
+                  } catch {
+                    statusChangeInfo = null;
+                  }
+                }
 
                 return (
                   <div key={event.id} className="flex gap-3">
                     <div className="relative">
                       <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full ${isError ? 'bg-destructive/10' : 'bg-primary/10'
-                          }`}
+                        className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                          isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
+                            ? 'bg-destructive/10' 
+                            : 'bg-primary/10'
+                        }`}
                       >
-                        <Icon className={`h-4 w-4 ${isError ? 'text-destructive' : 'text-primary'}`} />
+                        <Icon className={`h-4 w-4 ${
+                          isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
+                            ? 'text-destructive' 
+                            : 'text-primary'
+                        }`} />
                       </div>
                       {!isLast && (
                         <div className="absolute left-1/2 top-8 h-full w-px -translate-x-1/2 bg-border" />
                       )}
                     </div>
                     <div className="flex-1 pb-4">
-                      <p className="font-medium">{eventLabels[event.eventType] || event.details}</p>
+                      {isStatusChange && statusChangeInfo ? (
+                        <>
+                          <p className="font-medium">{statusChangeInfo.status}</p>
+                          {statusChangeInfo.reason && (
+                            <p className="text-sm text-muted-foreground italic">
+                              "{statusChangeInfo.reason}"
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <p className="font-medium">{eventLabels[event.eventType] || event.details}</p>
+                      )}
                       <p className="text-sm text-muted-foreground">
                         {format(new Date(event.timestamp), 'HH:mm:ss', { locale: dateLocale })}
                       </p>

@@ -113,6 +113,96 @@ async function fetchClientsMap(): Promise<Record<string, string>> {
 }
 
 /**
+ * Get full client info including default load location
+ * Returns client details and their default pickup/load location
+ */
+export interface ClientWithDefaultLocation {
+  id: string;
+  name: string;
+  address?: string;
+  city?: string;
+  region?: string;
+  defaultLoadLocation?: {
+    id: string;
+    name: string;
+    address: string;
+    city: string;
+    region: string;
+    zipCode: string;
+  };
+}
+
+export async function fetchClientWithDefaultLocation(clientId: string): Promise<ClientWithDefaultLocation | null> {
+  try {
+    // Pad client ID to match database format (e.g., 6 -> 00006)
+    const paddedId = clientId.padStart(5, '0');
+    console.log('[fetchClientWithDefaultLocation] paddedId:', paddedId);
+    
+    // Fetch client info
+    const clientResponse = await bvgFetch(
+      `${API_BASE_URL}/customer_stg?id=eq.${paddedId}&select=id,description,address,location,region`
+    );
+    
+    console.log('[fetchClientWithDefaultLocation] clientResponse.ok:', clientResponse.ok);
+    if (!clientResponse.ok) return null;
+    const clients = await clientResponse.json();
+    console.log('[fetchClientWithDefaultLocation] clients:', clients);
+    if (clients.length === 0) return null;
+    
+    const client = clients[0];
+    
+    // Fetch default location
+    const defaultLocResponse = await bvgFetch(
+      `${API_BASE_URL}/customer_default_location?customer_id=eq.${paddedId}&select=location_id`
+    );
+    
+    let defaultLoadLocation = undefined;
+    
+    console.log('[fetchClientWithDefaultLocation] defaultLocResponse.ok:', defaultLocResponse.ok);
+    if (defaultLocResponse.ok) {
+      const defaultLocs = await defaultLocResponse.json();
+      console.log('[fetchClientWithDefaultLocation] defaultLocs:', defaultLocs);
+      if (defaultLocs.length > 0) {
+        const locationId = defaultLocs[0].location_id;
+        console.log('[fetchClientWithDefaultLocation] locationId:', locationId);
+        
+        // Fetch location details
+        const locResponse = await bvgFetch(
+          `${API_BASE_URL}/customer_location_stg?id=eq.${locationId}&select=id,description,address,zip_code,location,region`
+        );
+        
+        if (locResponse.ok) {
+          const locations = await locResponse.json();
+          if (locations.length > 0) {
+            const loc = locations[0];
+            defaultLoadLocation = {
+              id: String(loc.id),
+              name: loc.description || 'Sin nombre',
+              address: loc.address || '',
+              city: loc.location || '',
+              region: loc.region || '',
+              zipCode: loc.zip_code || '',
+            };
+          }
+        }
+      }
+    }
+    
+    return {
+      id: client.id,
+      name: client.description || `Cliente ${client.id}`,
+      address: client.address,
+      city: client.location,
+      region: client.region,
+      defaultLoadLocation,
+    };
+  } catch (error) {
+    console.error('Error fetching client with default location:', error);
+    return null;
+  }
+}
+
+/**
  * Fetch order lines for a specific order from ordenes_intake_lineas
  * Includes lookup for destination name from customer_location_stg
  */
@@ -291,6 +381,8 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
     ).length;
     const ordersProcessing = orders.filter((o) => o.status === 'PROCESSING').length;
     const ordersReceived = orders.filter((o) => o.status === 'RECEIVED').length;
+    const ordersRejected = orders.filter((o) => o.status === 'REJECTED').length;
+    const ordersCompleted = orders.filter((o) => o.status === 'COMPLETED').length;
 
     // Calculate average processing time for today's completed orders
     const calculateAvgTime = (ordersList: typeof orders, startDate: Date, endDate?: Date) => {
@@ -349,6 +441,8 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       ordersInValidation,
       ordersProcessing,
       ordersReceived,
+      ordersRejected,
+      ordersCompleted,
     };
   } catch (error) {
     console.error('Error fetching KPIs:', error);
@@ -365,6 +459,8 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       ordersInValidation: 0,
       ordersProcessing: 0,
       ordersReceived: 0,
+      ordersRejected: 0,
+      ordersCompleted: 0,
     };
   }
 }
@@ -429,27 +525,92 @@ export async function fetchCustomerEmails() {
 /**
  * Fetch email intake statistics from email_intake_stats
  */
+/**
+ * Fetch email statistics from ordenes_intake (real source of processed emails)
+ * Column mapping: sender_address (not sender_email), payload_json for attachments
+ */
 export async function fetchEmailStats() {
   try {
-    const response = await bvgFetch(`${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=100`);
-    if (!response.ok) throw new Error('Failed to fetch email stats');
+    // Use ordenes_intake - correct column names: sender_address, payload_json
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,status,source,payload_json,file_uri`
+    );
+    if (!response.ok) {
+      console.error('Failed to fetch ordenes_intake:', response.status);
+      throw new Error('Failed to fetch email stats');
+    }
 
     const data = await response.json();
+    console.log('Fetched ordenes_intake:', data.length, 'records');
 
-    return data.map((row: any) => ({
-      id: String(row.id),
-      receivedAt: row.received_at,
-      messageId: row.message_id,
-      fromAddress: row.from_address,
-      fromDomain: row.from_domain,
-      subject: row.subject,
-      hasAttachments: row.has_attachments,
-      attachmentsPdf: row.attachments_pdf || 0,
-      attachmentsExcel: row.attachments_excel || 0,
-      attachmentsOther: row.attachments_other || 0,
-      customerId: row.customer_id,
-      customerName: row.customer_name,
-    }));
+    return data.map((row: any) => {
+      // Parse payload_json for attachment info if available
+      const payload = row.payload_json || {};
+      const attachments = payload.attachments || payload.files || [];
+      
+      let attachmentsPdf = 0;
+      let attachmentsExcel = 0;
+      let attachmentsOther = 0;
+      let hasAttachments = false;
+
+      // Check file_uri for attachment indication
+      if (row.file_uri && row.file_uri !== 'NA' && row.file_uri !== '') {
+        hasAttachments = true;
+        const fileUri = row.file_uri.toLowerCase();
+        if (fileUri.includes('.pdf')) {
+          attachmentsPdf = 1;
+        } else if (fileUri.includes('.xls') || fileUri.includes('.csv')) {
+          attachmentsExcel = 1;
+        } else {
+          attachmentsOther = 1;
+        }
+      }
+
+      // Also check payload attachments array
+      if (Array.isArray(attachments) && attachments.length > 0) {
+        hasAttachments = true;
+        attachments.forEach((att: any) => {
+          const filename = (att.filename || att.name || '').toLowerCase();
+          const mimeType = (att.mimeType || att.contentType || '').toLowerCase();
+          
+          if (filename.endsWith('.pdf') || mimeType.includes('pdf')) {
+            attachmentsPdf++;
+          } else if (
+            filename.endsWith('.xlsx') || 
+            filename.endsWith('.xls') || 
+            filename.endsWith('.csv') ||
+            mimeType.includes('spreadsheet') ||
+            mimeType.includes('excel') ||
+            mimeType.includes('csv')
+          ) {
+            attachmentsExcel++;
+          } else if (filename || mimeType) {
+            attachmentsOther++;
+          }
+        });
+      }
+
+      // Extract domain from email - use sender_address (correct column name)
+      const fromAddress = row.sender_address || '';
+      const fromDomain = fromAddress.includes('@') ? fromAddress.split('@')[1] : '';
+
+      return {
+        id: String(row.id),
+        receivedAt: row.created_at,
+        messageId: row.message_id,
+        fromAddress,
+        fromDomain,
+        subject: row.subject || '(Sin asunto)',
+        hasAttachments,
+        attachmentsPdf,
+        attachmentsExcel,
+        attachmentsOther,
+        customerName: row.customer_name,
+        status: row.status,
+        source: row.source || 'EMAIL',
+        isProcessedAsOrder: true,
+      };
+    });
   } catch (error) {
     console.error('Error fetching email stats:', error);
     return [];
@@ -513,23 +674,32 @@ export async function fetchOrderEvents() {
 /**
  * Fetch email triage data
  */
+/**
+ * Fetch email triage data (classification results)
+ * Uses the actual email_triage table structure
+ */
 export async function fetchEmailTriage() {
   try {
-    const response = await bvgFetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=100`);
-    if (!response.ok) throw new Error('Failed to fetch email triage');
+    const response = await bvgFetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=200`);
+    if (!response.ok) {
+      console.warn('email_triage table may not exist or is empty');
+      return [];
+    }
 
     const data = await response.json();
 
     return data.map((row: any) => ({
-      id: String(row.triage_id),
-      clientId: row.client_id,
+      id: String(row.id),
       messageId: row.message_id,
       fromEmail: row.from_email,
       subject: row.subject,
-      isOrderEmail: row.is_order_email,
-      preferredSource: row.preferred_source,
-      triageOutput: row.triage_output,
+      receivedAt: row.received_at,
+      classification: row.classification, // e.g., 'ORDER', 'OTHER', 'SPAM'
+      confidence: row.confidence,
+      processingStatus: row.processing_status,
       createdAt: row.created_at,
+      // Derived field for backward compatibility
+      isOrderEmail: row.classification === 'ORDER' || row.classification === 'PEDIDO',
     }));
   } catch (error) {
     console.error('Error fetching email triage:', error);
@@ -738,6 +908,139 @@ export async function approveOrderForFTP(
       success: false,
       message: error instanceof Error ? error.message : 'Error desconocido al aprobar pedido',
     };
+  }
+}
+
+// ========== ORDER STATUS MANAGEMENT FUNCTIONS ==========
+
+/**
+ * Update order status manually
+ * Valid transitions depend on current state
+ */
+export async function updateOrderStatus(
+  intakeId: string,
+  newStatus: 'RECEIVED' | 'VALIDATING' | 'IN_REVIEW' | 'APPROVED' | 'PROCESSING' | 'COMPLETED' | 'REJECTED' | 'ERROR',
+  reason?: string,
+  updatedBy?: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    // Update the order status directly
+    const updateData: Record<string, any> = {
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Set timestamps based on status
+    if (newStatus === 'APPROVED') {
+      updateData.approved_at = new Date().toISOString();
+    } else if (newStatus === 'REJECTED') {
+      updateData.rejected_at = new Date().toISOString();
+    } else if (newStatus === 'COMPLETED') {
+      updateData.sent_at = new Date().toISOString();
+    }
+
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?id=eq.${intakeId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    // Log the status change
+    await logOrderEvent(intakeId, 'status_change', {
+      new_status: newStatus,
+      reason: reason || 'Manual status change',
+      updated_by: updatedBy || 'frontend_user',
+    });
+
+    return {
+      success: true,
+      message: `Estado actualizado a ${newStatus}`,
+    };
+  } catch (error) {
+    console.error('Error updating order status:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al actualizar estado',
+    };
+  }
+}
+
+/**
+ * Mark order as completed
+ */
+export async function markOrderCompleted(
+  intakeId: string,
+  completedBy?: string
+): Promise<{ success: boolean; message: string }> {
+  return updateOrderStatus(intakeId, 'COMPLETED', 'Marcado como completado manualmente', completedBy);
+}
+
+/**
+ * Reject/Cancel an order
+ */
+export async function rejectOrder(
+  intakeId: string,
+  reason: string,
+  rejectedBy?: string
+): Promise<{ success: boolean; message: string }> {
+  return updateOrderStatus(intakeId, 'REJECTED', reason, rejectedBy);
+}
+
+/**
+ * Move order back to review
+ */
+export async function moveOrderToReview(
+  intakeId: string,
+  reason?: string,
+  movedBy?: string
+): Promise<{ success: boolean; message: string }> {
+  return updateOrderStatus(intakeId, 'IN_REVIEW', reason || 'Movido a revisión para verificación', movedBy);
+}
+
+/**
+ * Log an order event to orders_log
+ */
+async function logOrderEvent(
+  intakeId: string,
+  step: string,
+  info: Record<string, any>
+): Promise<void> {
+  try {
+    // Get the message_id from the order
+    const orderResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?id=eq.${intakeId}&select=message_id`
+    );
+    
+    if (!orderResponse.ok) return;
+    
+    const orders = await orderResponse.json();
+    const messageId = orders[0]?.message_id || `intake-${intakeId}`;
+
+    await bvgFetch(`${API_BASE_URL}/orders_log`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        intake_id: parseInt(intakeId),
+        message_id: messageId,
+        step,
+        status: 'OK',
+        info,
+      }),
+    });
+  } catch (error) {
+    console.error('Error logging order event:', error);
   }
 }
 
