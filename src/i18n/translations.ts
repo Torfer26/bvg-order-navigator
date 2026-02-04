@@ -123,11 +123,21 @@ export interface Translations {
     // Columnas de líneas de pedido
     consignee: string;        // Antes "cliente" - es el punto de entrega
     locality: string;         // Antes "destino" - es la localidad/ciudad
+    deliveryAddress: string;  // Nueva columna para dirección de entrega
     pallets: string;
     deliveryDate: string;
     lineNotes: string;
     pending: string;
     manual: string;
+    // Nuevos campos para direcciones de entrega
+    assignAddress: string;
+    manuallyAssigned: string;
+    editDeliveryAddress: string;
+    pendingDeliveryAddressSingular: string;
+    pendingDeliveryAddressPlural: string;
+    lineWithoutDeliveryAddressSingular: string;
+    lineWithoutDeliveryAddressPlural: string;
+    assignDeliveryAddressHelp: string;
   };
   
   // Order statuses (matching bvg.order_intake_status ENUM)
@@ -383,11 +393,21 @@ export const translations: Record<Language, Translations> = {
       // Columnas de líneas de pedido
       consignee: 'Consignatario',
       locality: 'Localidad',
+      deliveryAddress: 'Dirección de Entrega',
       pallets: 'Palets',
       deliveryDate: 'Fecha Entrega',
       lineNotes: 'Nota',
       pending: 'Pendiente',
       manual: 'Manual',
+      // Nuevos campos para direcciones de entrega
+      assignAddress: 'Asignar dirección',
+      manuallyAssigned: 'Asignada',
+      editDeliveryAddress: 'Editar dirección de entrega',
+      pendingDeliveryAddressSingular: 'dirección de entrega pendiente',
+      pendingDeliveryAddressPlural: 'direcciones de entrega pendientes',
+      lineWithoutDeliveryAddressSingular: 'línea sin dirección de entrega asignada',
+      lineWithoutDeliveryAddressPlural: 'líneas sin dirección de entrega asignada',
+      assignDeliveryAddressHelp: 'Haz clic en "Asignar dirección" para buscar y vincular la dirección de entrega del consignatario en nuestra base de datos.',
     },
     orderStatus: {
       RECEIVED: 'Recibido',
@@ -620,12 +640,22 @@ export const translations: Record<Language, Translations> = {
       // Columnas de líneas de pedido
       consignee: 'Consegnatario',
       locality: 'Località',
+      deliveryAddress: 'Indirizzo di Consegna',
       pallets: 'Pallet',
       deliveryDate: 'Data Consegna',
       lineNotes: 'Note',
       pending: 'In attesa',
       manual: 'Manuale',
       notes: 'Note',
+      // Nuovi campi per indirizzi di consegna
+      assignAddress: 'Assegna indirizzo',
+      manuallyAssigned: 'Assegnato',
+      editDeliveryAddress: 'Modifica indirizzo di consegna',
+      pendingDeliveryAddressSingular: 'indirizzo di consegna in attesa',
+      pendingDeliveryAddressPlural: 'indirizzi di consegna in attesa',
+      lineWithoutDeliveryAddressSingular: 'riga senza indirizzo di consegna assegnato',
+      lineWithoutDeliveryAddressPlural: 'righe senza indirizzo di consegna assegnato',
+      assignDeliveryAddressHelp: 'Clicca su "Assegna indirizzo" per cercare e collegare l\'indirizzo di consegna del consegnatario nel nostro database.',
     },
     orderStatus: {
       RECEIVED: 'Ricevuto',

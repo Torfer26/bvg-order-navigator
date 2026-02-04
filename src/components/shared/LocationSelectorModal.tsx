@@ -115,12 +115,12 @@ export function LocationSelectorModal({
       if (createAlias && aliasText.trim()) {
         const aliasResult = await createLocationAlias(aliasText.trim(), selectedLocation.id);
         if (aliasResult.success) {
-          toast.success('Ubicacion y alias guardados');
+          toast.success('Dirección de entrega asignada y alias creado');
         } else {
-          toast.warning(`Ubicacion guardada, pero: ${aliasResult.message}`);
+          toast.warning(`Dirección asignada, pero: ${aliasResult.message}`);
         }
       } else {
-        toast.success('Ubicacion actualizada');
+        toast.success('Dirección de entrega asignada correctamente');
       }
 
       onLocationSet(line.id, selectedLocation);
@@ -150,23 +150,40 @@ export function LocationSelectorModal({
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
-            Seleccionar Ubicacion
+            Asignar Dirección de Entrega
           </DialogTitle>
-          <DialogDescription className="space-y-1">
-            <span className="block">
-              Linea {line.lineNumber}: <span className="font-medium">{line.customer}</span>
-            </span>
-            {(line.rawCustomerText || line.rawDestinationText) && (
-              <span className="block text-xs text-muted-foreground">
-                {line.rawCustomerText && (
-                  <span>Consignatario: <span className="font-medium">"{line.rawCustomerText}"</span></span>
-                )}
-                {line.rawCustomerText && line.rawDestinationText && ' → '}
-                {line.rawDestinationText && (
-                  <span>Localidad: <span className="font-medium">"{line.rawDestinationText}"</span></span>
-                )}
-              </span>
-            )}
+          <DialogDescription asChild>
+            <div className="space-y-2">
+              {/* Datos del pedido */}
+              <div className="p-3 rounded-lg bg-muted/50 border space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    Línea {line.lineNumber}
+                  </span>
+                  <span className="text-xs font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded">
+                    {line.pallets} pallets
+                  </span>
+                </div>
+                
+                <div className="grid gap-1.5">
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs text-muted-foreground w-24 shrink-0">Consignatario:</span>
+                    <span className="text-sm font-medium">{line.rawCustomerText || line.customer}</span>
+                  </div>
+                  {line.rawDestinationText && (
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs text-muted-foreground w-24 shrink-0">Localidad (Excel):</span>
+                      <span className="text-sm">{line.rawDestinationText}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Search className="h-3 w-3" />
+                Busca la dirección de entrega del consignatario en nuestra base de datos
+              </p>
+            </div>
           </DialogDescription>
         </DialogHeader>
 
@@ -178,7 +195,7 @@ export function LocationSelectorModal({
               <div>
                 <Label className="text-sm font-medium flex items-center gap-2 mb-2">
                   <AlertTriangle className="h-4 w-4 text-amber-500" />
-                  Sugerencias automaticas ({suggestions.length})
+                  Direcciones de entrega sugeridas ({suggestions.length})
                 </Label>
                 <div className="space-y-2 max-h-[120px] overflow-y-auto rounded-md border p-2">
                   {suggestions.map((suggestion) => (
@@ -224,11 +241,11 @@ export function LocationSelectorModal({
             <div>
               <Label className="text-sm font-medium flex items-center gap-2 mb-2">
                 <Search className="h-4 w-4" />
-                Buscar ubicacion manualmente
+                Buscar dirección de entrega
               </Label>
               <div className="relative">
                 <Input
-                  placeholder="Buscar por nombre, ciudad..."
+                  placeholder="Buscar por nombre, dirección, ciudad..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pr-8"
@@ -276,7 +293,7 @@ export function LocationSelectorModal({
 
               {searchQuery.length >= 2 && !isSearching && searchResults.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
-                  No se encontraron ubicaciones
+                  No se encontraron direcciones de entrega
                 </p>
               )}
             </div>
@@ -286,42 +303,59 @@ export function LocationSelectorModal({
               <>
                 <Separator />
                 
-                {/* Selected location preview - compacto */}
-                <div className="p-2.5 rounded-lg border-2 border-primary bg-primary/5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">{selectedLocation.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {[selectedLocation.address, selectedLocation.city, selectedLocation.province]
-                          .filter(Boolean)
-                          .join(', ')}
-                      </p>
+                {/* Selected location preview */}
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium flex items-center gap-2">
+                    <Check className="h-4 w-4 text-emerald-500" />
+                    Dirección de entrega seleccionada
+                  </Label>
+                  <div className="p-3 rounded-lg border-2 border-emerald-500 bg-emerald-50 dark:bg-emerald-950/20">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-emerald-800 dark:text-emerald-300">{selectedLocation.name}</p>
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                          {[selectedLocation.address, selectedLocation.city, selectedLocation.province]
+                            .filter(Boolean)
+                            .join(', ')}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="text-xs shrink-0 bg-white dark:bg-gray-800">
+                        ID: {selectedLocation.id}
+                      </Badge>
                     </div>
-                    <Badge variant="outline" className="text-xs shrink-0">
-                      ID: {selectedLocation.id}
-                    </Badge>
                   </div>
                 </div>
 
-                {/* Create alias option - compacto */}
-                <div className="p-2.5 rounded-lg bg-muted/50 space-y-2">
-                  <div className="flex items-center gap-2">
+                {/* Create alias option - with clear explanation */}
+                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 space-y-2">
+                  <div className="flex items-start gap-2">
                     <Checkbox
                       id="create-alias"
                       checked={createAlias}
                       onCheckedChange={(checked) => setCreateAlias(checked as boolean)}
+                      className="mt-0.5"
                     />
-                    <Label htmlFor="create-alias" className="text-sm cursor-pointer">
-                      Crear alias para futuras ocurrencias
-                    </Label>
+                    <div className="space-y-1">
+                      <Label htmlFor="create-alias" className="text-sm font-medium cursor-pointer text-blue-800 dark:text-blue-300">
+                        Recordar esta asignación (crear alias)
+                      </Label>
+                      <p className="text-xs text-blue-600 dark:text-blue-400">
+                        Cuando aparezca este consignatario en futuros pedidos, se asignará automáticamente esta dirección de entrega.
+                      </p>
+                    </div>
                   </div>
                   {createAlias && (
-                    <Input
-                      value={aliasText}
-                      onChange={(e) => setAliasText(e.target.value.toUpperCase())}
-                      placeholder="TEXTO DEL ALIAS"
-                      className="font-mono text-sm h-8"
-                    />
+                    <div className="pl-6 space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        Texto del consignatario que activará el alias:
+                      </Label>
+                      <Input
+                        value={aliasText}
+                        onChange={(e) => setAliasText(e.target.value.toUpperCase())}
+                        placeholder="NOMBRE DEL CONSIGNATARIO"
+                        className="font-mono text-sm h-8 bg-white dark:bg-gray-900"
+                      />
+                    </div>
                   )}
                 </div>
               </>

@@ -116,6 +116,15 @@ async function fetchClientsMap(): Promise<Record<string, string>> {
  * Fetch order lines for a specific order from ordenes_intake_lineas
  * Includes lookup for destination name from customer_location_stg
  */
+// Interface for full location data
+interface LocationData {
+  name: string;
+  address?: string;
+  city?: string;
+  province?: string;
+  zipCode?: string;
+}
+
 export async function fetchOrderLines(intakeId: string): Promise<any[]> {
   try {
     const response = await bvgFetch(
@@ -125,13 +134,13 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
 
     const lines = await response.json();
 
-    // Get destination IDs to fetch location names
+    // Get destination IDs to fetch location details
     const destIds = lines
       .map((row: any) => row.destination_id)
       .filter((id: any) => id != null);
 
-    // Fetch location names if there are destination IDs
-    let locationsMap: Record<string, string> = {};
+    // Fetch full location data if there are destination IDs
+    let locationsMap: Record<string, LocationData> = {};
     if (destIds.length > 0) {
       const locResponse = await bvgFetch(
         `${API_BASE_URL}/customer_location_stg?id=in.(${destIds.join(',')})`
@@ -139,30 +148,46 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
       if (locResponse.ok) {
         const locations = await locResponse.json();
         locations.forEach((loc: any) => {
-          locationsMap[String(loc.id)] = loc.location || loc.description || 'Sin destino';
+          locationsMap[String(loc.id)] = {
+            name: loc.description || loc.location || 'Sin nombre',
+            address: loc.address,
+            city: loc.location,
+            province: loc.region,
+            zipCode: loc.zip_code,
+          };
         });
       }
     }
 
-    return lines.map((row: any, index: number) => ({
-      id: String(row.id),
-      lineNumber: index + 1,
-      customer: row.customer_name || 'Sin cliente',
-      destination: locationsMap[String(row.destination_id)] || row.raw_destination_text || 'Sin destino',
-      destinationId: row.destination_id,
-      notes: row.line_notes || '',
-      pallets: Number(row.pallets) || 0,
-      deliveryDate: row.delivery_date,
-      observations: '',
-      unit: row.pallet_type || 'PLT',
-      // Location suggestion fields
-      locationStatus: row.location_status || (row.destination_id ? 'AUTO' : 'PENDING_LOCATION'),
-      locationSuggestions: row.location_suggestions || [],
-      rawDestinationText: row.raw_destination_text,
-      rawCustomerText: row.raw_customer_text,
-      locationSetBy: row.location_set_by,
-      locationSetAt: row.location_set_at,
-    }));
+    return lines.map((row: any, index: number) => {
+      const locationData = locationsMap[String(row.destination_id)];
+      
+      return {
+        id: String(row.id),
+        lineNumber: index + 1,
+        customer: row.customer_name || 'Sin cliente',
+        // Main destination name
+        destination: locationData?.name || row.raw_destination_text || 'Sin destino',
+        destinationId: row.destination_id,
+        // Full address details
+        destinationAddress: locationData?.address,
+        destinationCity: locationData?.city,
+        destinationProvince: locationData?.province,
+        destinationZipCode: locationData?.zipCode,
+        notes: row.line_notes || '',
+        pallets: Number(row.pallets) || 0,
+        deliveryDate: row.delivery_date,
+        observations: '',
+        unit: row.pallet_type || 'PLT',
+        // Location suggestion fields
+        locationStatus: row.location_status || (row.destination_id ? 'AUTO' : 'PENDING_LOCATION'),
+        locationSuggestions: row.location_suggestions || [],
+        rawDestinationText: row.raw_destination_text,
+        rawCustomerText: row.raw_customer_text,
+        locationSetBy: row.location_set_by,
+        locationSetAt: row.location_set_at,
+      };
+    });
   } catch (error) {
     console.error('Error fetching order lines:', error);
     return [];
@@ -229,52 +254,76 @@ export async function fetchHolidays(): Promise<Holiday[]> {
  */
 export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
   try {
-    const [orders, dlqOrders, emailStats] = await Promise.all([
+    // Fetch orders, DLQ, and pending locations in parallel
+    const [orders, dlqOrders, pendingLocationsResponse] = await Promise.all([
       fetchOrders(),
       fetchDLQOrders(),
-      fetchEmailStats(),
+      bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?location_status=eq.PENDING_LOCATION&select=id`),
     ]);
+
+    // Parse pending locations count
+    let pendingLocations = 0;
+    if (pendingLocationsResponse.ok) {
+      const pendingData = await pendingLocationsResponse.json();
+      pendingLocations = Array.isArray(pendingData) ? pendingData.length : 0;
+    }
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
     const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    // Orders by time period
     const ordersToday = orders.filter((o) => new Date(o.receivedAt) >= today).length;
+    const ordersYesterday = orders.filter((o) => {
+      const date = new Date(o.receivedAt);
+      return date >= yesterday && date < today;
+    }).length;
     const ordersWeek = orders.filter((o) => new Date(o.receivedAt) >= weekAgo).length;
+    
+    // DLQ count
     const pendingDLQ = dlqOrders.filter((o) => !o.resolved).length;
 
-    // FIX: Calculate average processing time only for orders from the last 7 days
-    const recentCompletedOrders = orders.filter((o) => {
-      const receivedDate = new Date(o.receivedAt);
-      return (o.status === 'PROCESSING' || o.status === 'COMPLETED') 
-        && o.processedAt 
-        && receivedDate >= weekAgo;
-    });
+    // Orders by status (using correct UPPERCASE status values)
+    const ordersInValidation = orders.filter((o) => 
+      o.status === 'VALIDATING' || o.status === 'IN_REVIEW'
+    ).length;
+    const ordersProcessing = orders.filter((o) => o.status === 'PROCESSING').length;
+    const ordersReceived = orders.filter((o) => o.status === 'RECEIVED').length;
 
-    let avgTime = 0;
-    if (recentCompletedOrders.length > 0) {
+    // Calculate average processing time for today's completed orders
+    const calculateAvgTime = (ordersList: typeof orders, startDate: Date, endDate?: Date) => {
+      const completed = ordersList.filter((o) => {
+        const receivedDate = new Date(o.receivedAt);
+        const inRange = endDate 
+          ? receivedDate >= startDate && receivedDate < endDate
+          : receivedDate >= startDate;
+        return (o.status === 'PROCESSING' || o.status === 'COMPLETED') 
+          && o.processedAt 
+          && inRange;
+      });
+
+      if (completed.length === 0) return 0;
+
       const validTimes: number[] = [];
-      
-      for (const o of recentCompletedOrders) {
+      for (const o of completed) {
         const start = new Date(o.receivedAt).getTime();
         const end = new Date(o.processedAt!).getTime();
         const diffMs = end - start;
-        
-        // Only include positive, reasonable times (less than 24 hours)
         if (diffMs > 0 && diffMs < 24 * 60 * 60 * 1000) {
           validTimes.push(diffMs);
         }
       }
       
-      if (validTimes.length > 0) {
-        const totalTimeMs = validTimes.reduce((acc, t) => acc + t, 0);
-        avgTime = Math.round((totalTimeMs / validTimes.length) / 60000); // Minutes
-        // If less than 1 minute, show decimal
-        if (avgTime === 0 && totalTimeMs > 0) {
-          avgTime = parseFloat(((totalTimeMs / validTimes.length) / 60000).toFixed(1));
-        }
-      }
-    }
+      if (validTimes.length === 0) return 0;
+      const totalTimeMs = validTimes.reduce((acc, t) => acc + t, 0);
+      const avgMinutes = (totalTimeMs / validTimes.length) / 60000;
+      return avgMinutes < 1 ? parseFloat(avgMinutes.toFixed(1)) : Math.round(avgMinutes);
+    };
+
+    const avgProcessingTime = calculateAvgTime(orders, weekAgo);
+    const avgProcessingTimeYesterday = calculateAvgTime(orders, yesterday, today);
 
     // Calculate success rate based on orders that completed vs errored in last 7 days
     const erroredOrdersWeek = orders.filter((o) => {
@@ -288,21 +337,34 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
 
     return {
       ordersToday,
+      ordersYesterday,
       ordersWeek,
       errorRate: ordersWeek > 0 ? ((erroredOrdersWeek + pendingDLQ) / ordersWeek) * 100 : 0,
       pendingDLQ,
-      avgProcessingTime: avgTime,
-      successRate: Math.max(0, Math.min(100, successRate)), // Clamp between 0-100
+      avgProcessingTime,
+      avgProcessingTimeYesterday,
+      successRate: Math.max(0, Math.min(100, successRate)),
+      // New operational metrics
+      pendingLocations,
+      ordersInValidation,
+      ordersProcessing,
+      ordersReceived,
     };
   } catch (error) {
     console.error('Error fetching KPIs:', error);
     return {
       ordersToday: 0,
+      ordersYesterday: 0,
       ordersWeek: 0,
       errorRate: 0,
       pendingDLQ: 0,
       avgProcessingTime: 0,
+      avgProcessingTimeYesterday: 0,
       successRate: 100,
+      pendingLocations: 0,
+      ordersInValidation: 0,
+      ordersProcessing: 0,
+      ordersReceived: 0,
     };
   }
 }

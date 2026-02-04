@@ -69,6 +69,11 @@ export default function OrderDetail() {
           customer: line.customer,
           destination: line.destination,
           destinationId: line.destinationId,
+          // Full delivery address details
+          destinationAddress: line.destinationAddress,
+          destinationCity: line.destinationCity,
+          destinationProvince: line.destinationProvince,
+          destinationZipCode: line.destinationZipCode,
           notes: line.notes,
           pallets: line.pallets,
           deliveryDate: line.deliveryDate,
@@ -214,37 +219,74 @@ export default function OrderDetail() {
 
   const lineColumns: Column<OrderLine>[] = [
     { key: 'lineNumber', header: '#', cell: (row) => row.lineNumber, className: 'w-12' },
-    { key: 'customer', header: t.orders?.consignee || 'Consignatario', cell: (row) => row.customer },
+    { 
+      key: 'customer', 
+      header: t.orders?.consignee || 'Consignatario', 
+      cell: (row) => (
+        <div className="space-y-0.5">
+          <span className="font-medium">{row.customer}</span>
+          {row.rawDestinationText && (
+            <p className="text-xs text-muted-foreground">
+              📍 {row.rawDestinationText}
+            </p>
+          )}
+        </div>
+      )
+    },
     { 
       key: 'destination', 
-      header: t.orders?.locality || 'Localidad', 
+      header: t.orders?.deliveryAddress || 'Dirección de Entrega', 
       cell: (row) => {
         const isPending = needsLocationSelection(row);
+        
+        // Build full address string
+        const buildFullAddress = () => {
+          const parts = [];
+          if (row.destinationAddress) parts.push(row.destinationAddress);
+          if (row.destinationZipCode) parts.push(row.destinationZipCode);
+          if (row.destinationCity) parts.push(row.destinationCity);
+          if (row.destinationProvince && row.destinationProvince !== row.destinationCity) {
+            parts.push(`(${row.destinationProvince})`);
+          }
+          return parts.length > 0 ? parts.join(', ') : null;
+        };
+        
+        const fullAddress = buildFullAddress();
+        
         return (
           <div 
-            className={`flex items-center gap-2 ${isPending ? 'cursor-pointer hover:underline' : ''}`}
+            className={`${isPending ? 'cursor-pointer' : ''}`}
             onClick={isPending ? () => handleOpenLocationModal(row) : undefined}
           >
             {isPending ? (
-              <>
-                <span className="text-muted-foreground italic">
-                  {row.rawDestinationText || row.destination || 'Sin destino'}
-                </span>
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs hover:bg-amber-100 transition-colors">
                   <AlertTriangle className="h-3 w-3 mr-1" />
-                  {t.orders?.pending || 'Pendiente'}
+                  {t.orders?.assignAddress || 'Asignar dirección'}
                 </Badge>
-              </>
+              </div>
             ) : (
-              <>
-                <span>{row.destination}</span>
-                {row.locationStatus === 'MANUALLY_SET' && (
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
-                    <MapPin className="h-3 w-3 mr-1" />
-                    {t.orders?.manual || 'Manual'}
-                  </Badge>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">{row.destination}</span>
+                  {row.locationStatus === 'MANUALLY_SET' && (
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200 text-xs">
+                      <MapPin className="h-3 w-3 mr-1" />
+                      {t.orders?.manuallyAssigned || 'Asignada'}
+                    </Badge>
+                  )}
+                  {row.locationStatus === 'AUTO' && (
+                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">
+                      ✓ Auto
+                    </Badge>
+                  )}
+                </div>
+                {fullAddress && (
+                  <p className="text-xs text-muted-foreground">
+                    {fullAddress}
+                  </p>
                 )}
-              </>
+              </div>
             )}
           </div>
         );
@@ -270,6 +312,7 @@ export default function OrderDetail() {
           size="sm"
           onClick={() => handleOpenLocationModal(row)}
           className="h-8 px-2"
+          title={t.orders?.editDeliveryAddress || 'Editar dirección de entrega'}
         >
           <MapPin className="h-4 w-4" />
         </Button>
@@ -434,21 +477,25 @@ export default function OrderDetail() {
           {pendingLocationCount > 0 && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
               <AlertTriangle className="h-4 w-4 mr-1" />
-              {pendingLocationCount} {pendingLocationCount === 1 ? 'ubicacion pendiente' : 'ubicaciones pendientes'}
+              {pendingLocationCount} {pendingLocationCount === 1 
+                ? (t.orders?.pendingDeliveryAddressSingular || 'dirección de entrega pendiente') 
+                : (t.orders?.pendingDeliveryAddressPlural || 'direcciones de entrega pendientes')}
             </Badge>
           )}
         </div>
 
-        {/* Alert for pending locations */}
+        {/* Alert for pending delivery addresses */}
         {pendingLocationCount > 0 && (
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
-            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
-            <div>
+          <div className="mb-4 p-4 rounded-lg bg-amber-50 border border-amber-200 flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5 shrink-0" />
+            <div className="space-y-1">
               <p className="text-sm font-medium text-amber-800">
-                Hay {pendingLocationCount} {pendingLocationCount === 1 ? 'linea' : 'lineas'} sin ubicacion asignada
+                {pendingLocationCount} {pendingLocationCount === 1 
+                  ? (t.orders?.lineWithoutDeliveryAddressSingular || 'línea sin dirección de entrega asignada')
+                  : (t.orders?.lineWithoutDeliveryAddressPlural || 'líneas sin dirección de entrega asignada')}
               </p>
-              <p className="text-xs text-amber-700 mt-1">
-                Haz clic en "Pendiente" o en el icono de ubicacion para seleccionar manualmente
+              <p className="text-xs text-amber-700">
+                {t.orders?.assignDeliveryAddressHelp || 'Haz clic en "Asignar dirección" para buscar y vincular la dirección de entrega del consignatario en nuestra base de datos.'}
               </p>
             </div>
           </div>

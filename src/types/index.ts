@@ -61,8 +61,13 @@ export interface OrderLine {
   orderIntakeId: string;
   lineNumber: number;
   customer: string;       // CLIENTE - nombre del consignatario
-  destination: string;    // DESTINO - ciudad de entrega
+  destination: string;    // DESTINO - nombre del punto de entrega
   destinationId?: number; // ID de location para lookup
+  // Full delivery address details
+  destinationAddress?: string;  // Dirección completa
+  destinationCity?: string;     // Ciudad
+  destinationProvince?: string; // Provincia
+  destinationZipCode?: string;  // Código postal
   notes: string;          // NOTA - descripción del producto
   pallets: number;        // PALETS - cantidad
   deliveryDate?: string;  // FECHA DE ENTREGA
@@ -156,11 +161,18 @@ export interface LocationAlias {
 // Dashboard Types
 export interface DashboardKPIs {
   ordersToday: number;
+  ordersYesterday: number; // Para calcular trend real
   ordersWeek: number;
   errorRate: number;
   pendingDLQ: number;
   avgProcessingTime: number;
+  avgProcessingTimeYesterday: number; // Para calcular trend
   successRate: number;
+  // Métricas operativas reales
+  pendingLocations: number; // Líneas sin dirección de entrega
+  ordersInValidation: number; // Pedidos en VALIDATING/IN_REVIEW
+  ordersProcessing: number; // Pedidos en PROCESSING
+  ordersReceived: number; // Pedidos en RECEIVED
 }
 
 // Audit Types
