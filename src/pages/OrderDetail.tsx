@@ -59,9 +59,75 @@ import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
+// ============================================================================
+// Helper: Format event details for display
+// ============================================================================
+function formatEventDetails(
+  step: string | undefined,
+  info: Record<string, unknown> | undefined,
+  status: string | undefined
+): string {
+  if (!info) {
+    return status || step || 'Evento';
+  }
+
+  // Handle COMPLETED events (order approved and sent)
+  if (step === 'COMPLETED' || info.action === 'order_approved_and_sent') {
+    const approvedBy = info.approved_by as string;
+    if (approvedBy) {
+      // Extract name from email if possible
+      const name = approvedBy.includes('@') 
+        ? approvedBy.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        : approvedBy;
+      return `Aprobado y enviado por ${name}`;
+    }
+    return 'Pedido aprobado y enviado';
+  }
+
+  // Handle status changes
+  if (step === 'status_change' || info.new_status) {
+    const statusLabels: Record<string, string> = {
+      'REJECTED': 'Rechazado',
+      'COMPLETED': 'Completado',
+      'IN_REVIEW': 'En revisión',
+      'APPROVED': 'Aprobado',
+      'PROCESSING': 'Procesando',
+      'RECEIVED': 'Recibido',
+      'PARSING': 'Analizando',
+      'VALIDATING': 'Validando',
+    };
+    const newStatus = statusLabels[info.new_status as string] || info.new_status;
+    const changedBy = info.changed_by as string;
+    
+    if (changedBy) {
+      const name = changedBy.includes('@')
+        ? changedBy.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+        : changedBy;
+      return `${newStatus} por ${name}`;
+    }
+    return String(newStatus);
+  }
+
+  // Handle other known actions
+  if (info.action) {
+    const actionLabels: Record<string, string> = {
+      'email_received': 'Email recibido',
+      'pdf_extracted': 'PDF extraído',
+      'lines_created': 'Líneas creadas',
+      'location_resolved': 'Ubicación resuelta',
+      'validation_passed': 'Validación correcta',
+      'validation_failed': 'Error de validación',
+    };
+    return actionLabels[info.action as string] || String(info.action);
+  }
+
+  // Fallback: return status or step
+  return status || step || 'Evento';
+}
+
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   const [isReprocessing, setIsReprocessing] = useState(false);
@@ -146,7 +212,8 @@ export default function OrderDetail() {
             orderCode: foundOrder.orderCode,
             eventType: log.step || 'unknown',
             timestamp: log.createdAt,
-            details: log.info ? JSON.stringify(log.info) : log.status,
+            details: formatEventDetails(log.step, log.info, log.status),
+            actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
           }));
           
           // Deduplicar eventos: mantener solo el primero de cada tipo (step)
@@ -215,12 +282,16 @@ export default function OrderDetail() {
 
     setIsApproving(true);
     try {
-      const result = await approveOrderForFTP(order.id);
+      // Pass current user email for audit trail
+      // Fallback to name or a readable identifier if email not available
+      const approvedBy = user?.email || user?.name || 'Usuario no identificado';
+      console.log('[OrderDetail] Approving order - user context:', { user, approvedBy });
+      const result = await approveOrderForFTP(order.id, approvedBy);
       if (result.success) {
-        toast.success(t.orders?.approveSuccess || 'Pedido autorizado y enviado correctamente');
+        toast.success(t.orders?.approveSuccess || 'Pedido autorizado, enviado y completado correctamente');
 
-        // Optimistic UI Update: Change status immediately without reload
-        setOrder(prev => prev ? ({ ...prev, status: 'PROCESSING' }) : null);
+        // Optimistic UI Update: Change status to COMPLETED (workflow marks it complete after FTP)
+        setOrder(prev => prev ? ({ ...prev, status: 'COMPLETED' }) : null);
 
         // Background revalidation: Refresh events/logs carefully
         // Giving a small delay to allow n8n to process at least the first event

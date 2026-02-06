@@ -124,9 +124,13 @@ export async function checkCfAccessAuth(): Promise<User | null> {
   try {
     // Make a request to get CF Access identity
     // The /cdn-cgi/access/get-identity endpoint returns user info
+    console.log('CF Access: Checking authentication...');
+    
     const response = await fetch('/cdn-cgi/access/get-identity', {
       credentials: 'include',
     });
+    
+    console.log('CF Access: Response status:', response.status);
     
     if (!response.ok) {
       console.log('CF Access: Not authenticated or not behind CF Access');
@@ -134,30 +138,63 @@ export async function checkCfAccessAuth(): Promise<User | null> {
     }
     
     const identity = await response.json();
+    console.log('CF Access: Identity received:', identity);
     
-    if (!identity.email) {
-      console.log('CF Access: No email in identity');
+    // Cloudflare Access returns email in different fields depending on IdP
+    const email = identity.email || identity.user_email || identity.preferred_username;
+    
+    if (!email) {
+      console.log('CF Access: No email found in identity. Available fields:', Object.keys(identity));
       return null;
     }
     
-    const email = identity.email;
     const role = determineRole(email);
     
+    // Try to get name from various possible fields (check each properly)
+    let name: string;
+    if (identity.name && identity.name !== 'undefined undefined') {
+      name = identity.name;
+    } else if (identity.given_name && identity.family_name) {
+      name = `${identity.given_name} ${identity.family_name}`;
+    } else if (identity.given_name) {
+      name = identity.given_name;
+    } else if (identity.displayName) {
+      name = identity.displayName;
+    } else {
+      // Fallback: extract from email (ferran.torres@... -> "Ferran Torres")
+      name = extractName(email);
+    }
+    
     const user: User = {
-      id: identity.id || identity.sub || email,
+      id: identity.id || identity.sub || identity.user_uuid || email,
       email: email,
-      name: identity.name || extractName(email),
+      name: name,
       role: role,
       createdAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
     };
     
-    console.log('CF Access: User authenticated', { email, role });
+    // Store in sessionStorage for persistence across page reloads
+    sessionStorage.setItem('cf_access_user', JSON.stringify(user));
+    
+    console.log('CF Access: User authenticated', { email, role, name });
     return user;
     
   } catch (error) {
-    // If the endpoint doesn't exist, we're not behind CF Access
-    console.log('CF Access: Not available (likely local development)');
+    console.error('CF Access: Error checking auth:', error);
+    
+    // Try to recover from sessionStorage
+    const stored = sessionStorage.getItem('cf_access_user');
+    if (stored) {
+      try {
+        const user = JSON.parse(stored) as User;
+        console.log('CF Access: Recovered user from session:', user.email);
+        return user;
+      } catch {
+        sessionStorage.removeItem('cf_access_user');
+      }
+    }
+    
     return null;
   }
 }
@@ -210,6 +247,28 @@ export function getCfAccessLogoutUrl(): string {
 export function isCloudflareAccessEnabled(): boolean {
   // Check if we're likely behind CF Access
   // In production, the /cdn-cgi/ path is available
-  return window.location.hostname !== 'localhost' && 
-         window.location.hostname !== '127.0.0.1';
+  // For local development (localhost, 127.0.0.1, or private IPs), use local auth
+  const hostname = window.location.hostname;
+  
+  // Local development patterns
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return false;
+  }
+  
+  // Private IP ranges (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+  if (/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(hostname)) {
+    return false;
+  }
+  
+  // Docker internal hostnames
+  if (hostname.includes('docker') || hostname.includes('container')) {
+    return false;
+  }
+  
+  // If env var is set to disable CF Access
+  if (import.meta.env.VITE_DISABLE_CF_ACCESS === 'true') {
+    return false;
+  }
+  
+  return true;
 }

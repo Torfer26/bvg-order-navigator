@@ -3,28 +3,7 @@
  */
 
 import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday, Location, LocationSuggestion } from '@/types';
-
-// API URL - uses Vite proxy in development, or direct URL in production
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-
-// Default headers for PostgREST to use bvg schema
-const BVG_HEADERS = {
-  'Accept-Profile': 'bvg',
-  'Content-Profile': 'bvg',
-};
-
-/**
- * Fetch wrapper that adds bvg schema headers for PostgREST
- */
-async function bvgFetch(url: string, options?: RequestInit): Promise<Response> {
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...BVG_HEADERS,
-      ...options?.headers,
-    },
-  });
-}
+import { API_BASE_URL, bvgFetch } from './api';
 
 /**
  * Fetch orders from ordenes_intake table (bvg schema)
@@ -877,7 +856,9 @@ export async function approveOrderForFTP(
   approvedBy?: string
 ): Promise<{ success: boolean; message: string; orderCode?: string }> {
   try {
-    const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || 'http://localhost:5678/webhook';
+    // Use relative URL for webhook (nginx proxies to n8n internally)
+    // This avoids CORS issues since the request goes to the same origin
+    const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || '/webhook';
 
     const response = await fetch(`${N8N_WEBHOOK_URL}/approve-order`, {
       method: 'POST',
@@ -886,7 +867,7 @@ export async function approveOrderForFTP(
       },
       body: JSON.stringify({
         intake_id: intakeId,
-        approved_by: approvedBy || 'frontend_user',
+        approved_by: approvedBy || 'Usuario anónimo (sin sesión)',
         approved_at: new Date().toISOString(),
       }),
     });

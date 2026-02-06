@@ -11,6 +11,25 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 // N8N Webhook URL for reprocessing
 export const N8N_REPROCESS_WEBHOOK_URL = import.meta.env.VITE_N8N_REPROCESS_WEBHOOK_URL || '';
 
+// BVG Schema headers for PostgREST
+const BVG_HEADERS = {
+  'Accept-Profile': 'bvg',
+  'Content-Profile': 'bvg',
+};
+
+/**
+ * Fetch wrapper that adds bvg schema headers for PostgREST
+ */
+export async function bvgFetch(url: string, options?: RequestInit): Promise<Response> {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...BVG_HEADERS,
+      ...options?.headers,
+    },
+  });
+}
+
 interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
 }
