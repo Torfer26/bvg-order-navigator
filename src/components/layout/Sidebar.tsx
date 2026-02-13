@@ -13,7 +13,8 @@ import {
   Mail,
   GitBranch,
   Activity,
-  BarChart3
+  BarChart3,
+  UserX
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,6 +39,7 @@ const navItems: NavItem[] = [
   { to: '/dlq', icon: AlertTriangle, label: 'DLQ' },
   { to: '/analytics', icon: BarChart3, label: 'Analítica', section: 'analytics' },
   { to: '/monitoring/emails', icon: Mail, label: 'Emails', section: 'monitoring' },
+  { to: '/monitoring/unknown-clients', icon: UserX, label: 'Clientes sin asignar', roles: ['admin', 'ops'], section: 'monitoring' },
   { to: '/monitoring/logs', icon: GitBranch, label: 'Logs & Trazabilidad', section: 'monitoring' },
   { to: '/masters/clients', icon: Building2, label: 'Clientes', roles: ['admin'], section: 'masters' },
   { to: '/masters/remitentes', icon: Package, label: 'Remitentes', roles: ['admin'], section: 'masters' },

@@ -20,6 +20,7 @@ import Remitentes from "@/pages/masters/Remitentes";
 import Holidays from "@/pages/masters/Holidays";
 import LocationAliases from "@/pages/masters/LocationAliases";
 import EmailMonitoring from "@/pages/EmailMonitoring";
+import UnknownClients from "@/pages/UnknownClients";
 import LogsAndTraceability from "@/pages/LogsAndTraceability";
 import NotFound from "@/pages/NotFound";
 
@@ -44,6 +45,7 @@ const App = () => (
                 <Route path="dlq/:id" element={<DLQ />} />
                 <Route path="analytics" element={<Analytics />} />
                 <Route path="monitoring/emails" element={<EmailMonitoring />} />
+                <Route path="monitoring/unknown-clients" element={<UnknownClients />} />
                 <Route path="monitoring/logs" element={<LogsAndTraceability />} />
                 <Route path="users" element={<Users />} />
                 <Route path="masters/clients" element={<Clients />} />

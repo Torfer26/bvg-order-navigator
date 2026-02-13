@@ -651,6 +651,159 @@ export async function fetchOrderEvents() {
 }
 
 /**
+ * Fetch UNKNOWN_CLIENT events (remitentes no reconocidos)
+ */
+export async function fetchUnknownClientEvents(limit = 50): Promise<UnknownClientEvent[]> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/order_events?event_type=eq.UNKNOWN_CLIENT&order=created_at.desc&limit=${limit}`
+    );
+    if (!response.ok) throw new Error('Failed to fetch unknown client events');
+
+    const data = await response.json();
+    return data.map((row: any) => ({
+      id: String(row.id),
+      eventData: row.event_data || {},
+      createdAt: row.created_at,
+      senderAddress: row.event_data?.sender_address || '',
+      subject: row.event_data?.subject || '',
+      receivedAt: row.event_data?.received_at || row.created_at,
+    }));
+  } catch (error) {
+    console.error('Error fetching unknown client events:', error);
+    return [];
+  }
+}
+
+export interface UnknownClientEvent {
+  id: string;
+  eventData: Record<string, unknown>;
+  createdAt: string;
+  senderAddress: string;
+  subject: string;
+  receivedAt: string;
+}
+
+/**
+ * Fetch orders without assigned client
+ */
+export async function fetchOrdersWithoutClient(limit = 50): Promise<OrderWithoutClient[]> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?client_id=is.null&order=created_at.desc&limit=${limit}&select=id,order_code,message_id,sender_address,subject,created_at`
+    );
+    if (!response.ok) throw new Error('Failed to fetch orders without client');
+
+    const data = await response.json();
+    return data.map((row: any) => ({
+      id: String(row.id),
+      orderCode: row.order_code || `ORD-${row.id}`,
+      messageId: row.message_id || '',
+      senderAddress: row.sender_address || '',
+      subject: row.subject || '',
+      createdAt: row.created_at,
+    }));
+  } catch (error) {
+    console.error('Error fetching orders without client:', error);
+    return [];
+  }
+}
+
+export interface OrderWithoutClient {
+  id: string;
+  orderCode: string;
+  messageId: string;
+  senderAddress: string;
+  subject: string;
+  createdAt: string;
+}
+
+/**
+ * Add email to customer_emails (link sender to client)
+ */
+export async function addCustomerEmail(
+  customerId: string,
+  email: string,
+  emailType = 'PRIMARY'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/customer_emails`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        customer_id: customerId,
+        email: email.trim().toLowerCase(),
+        email_type: emailType,
+        active: true,
+      }),
+    });
+
+    if (!response.ok) {
+      if (response.status === 409) {
+        return { success: false, message: 'Este email ya está asociado a un cliente' };
+      }
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Email asociado correctamente al cliente' };
+  } catch (error) {
+    console.error('Error adding customer email:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al asociar email',
+    };
+  }
+}
+
+/**
+ * Assign client to an order (ordenes_intake.client_id)
+ */
+export async function assignClientToOrder(
+  intakeId: string,
+  clientId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    // client_id in ordenes_intake is BIGINT; customer_stg.id can be '00006' - parse to number
+    const numericClientId = clientId.match(/^\d+$/) ? parseInt(clientId, 10) : null;
+    if (numericClientId === null || isNaN(numericClientId)) {
+      return { success: false, message: 'ID de cliente no válido' };
+    }
+
+    const response = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?id=eq.${intakeId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          client_id: numericClientId,
+          updated_at: new Date().toISOString(),
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Cliente asignado correctamente al pedido' };
+  } catch (error) {
+    console.error('Error assigning client to order:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al asignar cliente',
+    };
+  }
+}
+
+/**
  * Fetch email triage data
  */
 /**
