@@ -688,6 +688,33 @@ export interface UnknownClientEvent {
 }
 
 /**
+ * Fallback: fetch sender/subject from order_events (UNKNOWN_CLIENT) when ordenes_intake has them empty.
+ * Matches by message_id in event_data.
+ */
+export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ senderAddress: string; subject: string }> {
+  if (!messageId) return { senderAddress: '', subject: '' };
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/order_events?event_type=eq.UNKNOWN_CLIENT&order=created_at.desc&limit=50`
+    );
+    if (!response.ok) return { senderAddress: '', subject: '' };
+    const data = await response.json();
+    const match = data.find((row: any) => {
+      const ed = row?.event_data || {};
+      return (ed.message_id || ed.messageId || '') === messageId;
+    });
+    if (!match?.event_data) return { senderAddress: '', subject: '' };
+    const ed = match.event_data as Record<string, unknown>;
+    return {
+      senderAddress: (ed.sender_address as string) || (ed.from as string) || '',
+      subject: (ed.subject as string) || '',
+    };
+  } catch {
+    return { senderAddress: '', subject: '' };
+  }
+}
+
+/**
  * Fetch orders without assigned client
  */
 export async function fetchOrdersWithoutClient(limit = 50): Promise<OrderWithoutClient[]> {

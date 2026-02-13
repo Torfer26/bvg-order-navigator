@@ -69,6 +69,7 @@ import {
   fetchClientWithDefaultLocation,
   fetchClients,
   assignClientToOrder,
+  fetchSenderFallbackForOrder,
   type ClientWithDefaultLocation
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -171,6 +172,8 @@ export default function OrderDetail() {
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientForAssign, setSelectedClientForAssign] = useState('');
   const [savingAssign, setSavingAssign] = useState(false);
+  // Fallback sender when ordenes_intake.sender_address is empty (e.g. from order_events)
+  const [senderFallback, setSenderFallback] = useState<{ senderAddress: string; subject: string } | null>(null);
 
   // Fetch order data from API
   // Function to load order data (can be called for refresh)
@@ -268,6 +271,17 @@ export default function OrderDetail() {
     fetchOrderData(true);
   }, [id]);
 
+  // Fallback: fetch sender from order_events when ordenes_intake.sender_address is empty
+  useEffect(() => {
+    if (order && !order.senderAddress && order.messageId) {
+      fetchSenderFallbackForOrder(order.messageId).then((fb) => {
+        if (fb.senderAddress || fb.subject) setSenderFallback(fb);
+      });
+    } else {
+      setSenderFallback(null);
+    }
+  }, [order?.id, order?.senderAddress, order?.messageId]);
+
   // Lines now fetched from API in useEffect above
 
   // Loading state
@@ -335,8 +349,12 @@ export default function OrderDetail() {
     setAssignClientModalOpen(true);
     setSelectedClientForAssign('');
     try {
-      const clientsData = await fetchClients();
+      const [clientsData, fallback] = await Promise.all([
+        fetchClients(),
+        (!order?.senderAddress && order?.messageId) ? fetchSenderFallbackForOrder(order.messageId) : Promise.resolve({ senderAddress: '', subject: '' }),
+      ]);
       setClients(clientsData);
+      if (fallback.senderAddress || fallback.subject) setSenderFallback(fallback);
     } catch (err) {
       console.error('Error loading clients:', err);
       toast.error('Error al cargar clientes');
@@ -788,8 +806,8 @@ export default function OrderDetail() {
                   <>
                     <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/50 px-3 py-2 text-sm">
                       <p className="font-medium text-amber-800">Correo recibido</p>
-                      <p className="mt-0.5 text-amber-700">{order.senderAddress || '—'}</p>
-                      <p className="mt-0.5 truncate text-amber-700/90">{order.subject || '—'}</p>
+                      <p className="mt-0.5 text-amber-700">{order.senderAddress || senderFallback?.senderAddress || '—'}</p>
+                      <p className="mt-0.5 truncate text-amber-700/90">{order.subject || senderFallback?.subject || '—'}</p>
                     </div>
                     <Button
                       variant="outline"
@@ -998,7 +1016,7 @@ export default function OrderDetail() {
       </div>
 
       {/* Dialog: Asignar cliente (sin salir de la vista) */}
-      <Dialog open={assignClientModalOpen} onOpenChange={setAssignClientModalOpen}>
+      <Dialog open={assignClientModalOpen} onOpenChange={(open) => { setAssignClientModalOpen(open); if (!open) setSenderFallback(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Asignar cliente al pedido</DialogTitle>
@@ -1011,11 +1029,11 @@ export default function OrderDetail() {
               <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1">
                 <div>
                   <Label className="text-xs text-muted-foreground">Remitente</Label>
-                  <p className="font-medium">{order.senderAddress || '—'}</p>
+                  <p className="font-medium">{order.senderAddress || senderFallback?.senderAddress || '—'}</p>
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Asunto</Label>
-                  <p className="font-medium break-words">{order.subject || '—'}</p>
+                  <p className="font-medium break-words">{order.subject || senderFallback?.subject || '—'}</p>
                 </div>
               </div>
               <div className="space-y-2">
