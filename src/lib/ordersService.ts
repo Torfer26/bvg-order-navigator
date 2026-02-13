@@ -688,30 +688,71 @@ export interface UnknownClientEvent {
 }
 
 /**
- * Fallback: fetch sender/subject from order_events (UNKNOWN_CLIENT) when ordenes_intake has them empty.
- * Matches by message_id in event_data.
+ * Fallback: fetch sender/subject when ordenes_intake has them empty.
+ * Tries: 1) order_events (UNKNOWN_CLIENT), 2) email_triage by message_id.
  */
 export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ senderAddress: string; subject: string }> {
   if (!messageId) return { senderAddress: '', subject: '' };
+
+  const empty = { senderAddress: '', subject: '' };
+  const extractFrom = (ed: Record<string, unknown> | null) => {
+    if (!ed) return empty;
+    const sender =
+      (ed.sender_address as string) ||
+      (ed.from as string) ||
+      (typeof (ed.from as any)?.emailAddress?.address === 'string' ? (ed.from as any).emailAddress.address : '') ||
+      '';
+    const subj = (ed.subject as string) || '';
+    return { senderAddress: sender || '', subject: subj || '' };
+  };
+
+  // 1) order_events UNKNOWN_CLIENT
   try {
-    const response = await bvgFetch(
+    const evRes = await bvgFetch(
       `${API_BASE_URL}/order_events?event_type=eq.UNKNOWN_CLIENT&order=created_at.desc&limit=50`
     );
-    if (!response.ok) return { senderAddress: '', subject: '' };
-    const data = await response.json();
-    const match = data.find((row: any) => {
-      const ed = row?.event_data || {};
-      return (ed.message_id || ed.messageId || '') === messageId;
-    });
-    if (!match?.event_data) return { senderAddress: '', subject: '' };
-    const ed = match.event_data as Record<string, unknown>;
-    return {
-      senderAddress: (ed.sender_address as string) || (ed.from as string) || '',
-      subject: (ed.subject as string) || '',
-    };
+    if (evRes.ok) {
+      const evData = await evRes.json();
+      const match = evData.find((row: any) => {
+        const ed = row?.event_data || {};
+        const mid = ed.message_id || ed.messageId || '';
+        return String(mid) === String(messageId);
+      });
+      const fromEv = extractFrom(match?.event_data as Record<string, unknown>);
+      if (fromEv.senderAddress || fromEv.subject) return fromEv;
+    }
   } catch {
-    return { senderAddress: '', subject: '' };
+    /* ignore */
   }
+
+  // 2) email_triage by message_id (sender_address, from_email, payload)
+  try {
+    const etRes = await bvgFetch(
+      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&limit=1`
+    );
+    if (etRes.ok) {
+      const etData = await etRes.json();
+      const row = etData[0];
+      if (row) {
+        let sender = row.sender_address || row.from_email || row.from || '';
+        if (!sender && row.payload) {
+          const p = row.payload as Record<string, unknown>;
+          sender =
+            (p.sender_address as string) ||
+            (p.from as string) ||
+            (typeof (p.from as any)?.emailAddress?.address === 'string' ? (p.from as any).emailAddress.address : '') ||
+            (p.from_email as string) ||
+            '';
+        }
+        const subj = row.subject || '';
+        if (sender || subj) return { senderAddress: String(sender || ''), subject: String(subj || '') };
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return empty;
 }
 
 /**
