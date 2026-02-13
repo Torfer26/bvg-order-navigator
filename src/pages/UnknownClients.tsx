@@ -6,9 +6,11 @@ import {
   RefreshCw,
   Search,
   Mail,
-  FileText,
   UserPlus,
   AlertCircle,
+  Trash2,
+  Users,
+  BookUser,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,12 +35,17 @@ import { Label } from '@/components/ui/label';
 import {
   fetchUnknownClientEvents,
   fetchOrdersWithoutClient,
+  fetchDismissedOrderIds,
   fetchClients,
   fetchCustomerEmails,
+  fetchCustomerEmailsWithClients,
   addCustomerEmail,
   assignClientToOrder,
+  dismissUnknownClientEvent,
+  dismissOrderPending,
   type UnknownClientEvent,
   type OrderWithoutClient,
+  type CustomerEmailWithClient,
 } from '@/lib/ordersService';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
@@ -46,54 +53,109 @@ import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from 'sonner';
 import type { Client } from '@/types';
 
+/** Unified pending item: unique sender with optional event + orders */
+interface PendingItem {
+  senderKey: string;
+  senderAddress: string;
+  subject: string;
+  receivedAt: string;
+  event?: UnknownClientEvent;
+  orders: OrderWithoutClient[];
+}
+
 export default function UnknownClients() {
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
 
-  const [events, setEvents] = useState<UnknownClientEvent[]>([]);
-  const [ordersWithoutClient, setOrdersWithoutClient] = useState<OrderWithoutClient[]>([]);
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [customerEmails, setCustomerEmails] = useState<CustomerEmailWithClient[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modal state: assign sender to client
-  const [assignSenderModal, setAssignSenderModal] = useState<{
-    open: boolean;
-    email: string;
-    subject: string;
+  // Modal: assign sender (and optionally orders) to client
+  const [assignModal, setAssignModal] = useState<{
+    senderAddress: string;
     eventId?: string;
+    orders: OrderWithoutClient[];
   } | null>(null);
-  const [selectedClientForSender, setSelectedClientForSender] = useState<string>('');
-  const [savingSender, setSavingSender] = useState(false);
-
-  // Modal state: assign client to order
-  const [assignOrderModal, setAssignOrderModal] = useState<OrderWithoutClient | null>(null);
-  const [selectedClientForOrder, setSelectedClientForOrder] = useState<string>('');
-  const [savingOrder, setSavingOrder] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [dismissing, setDismissing] = useState<string | null>(null);
 
   const loadData = async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
     else setLoading(true);
 
     try {
-      const [eventsData, ordersData, clientsData, customerEmailsData] = await Promise.all([
-        fetchUnknownClientEvents(50),
-        fetchOrdersWithoutClient(50),
-        fetchClients(),
+      const [dismissedIds, customerEmailsData] = await Promise.all([
+        fetchDismissedOrderIds(),
         fetchCustomerEmails(),
       ]);
+
+      const [eventsData, ordersData, clientsData, emailsWithClients] = await Promise.all([
+        fetchUnknownClientEvents(50),
+        fetchOrdersWithoutClient(50, dismissedIds),
+        fetchClients(),
+        fetchCustomerEmailsWithClients(),
+      ]);
+
       const resolvedEmails = new Set(
         customerEmailsData
           .filter((ce) => ce.active !== false && ce.email)
           .map((ce) => (ce.email as string).toLowerCase().trim())
       );
+
       const pendingEvents = eventsData.filter((e) => {
         const addr = (e.senderAddress || '').toLowerCase().trim();
         return addr && !resolvedEmails.has(addr);
       });
-      setEvents(pendingEvents);
-      setOrdersWithoutClient(ordersData);
+
+      // Merge by sender: unique senders with their event + orders
+      const bySender = new Map<string, PendingItem>();
+
+      for (const ev of pendingEvents) {
+        const key = (ev.senderAddress || '').toLowerCase().trim();
+        if (!key) continue;
+        const existing = bySender.get(key);
+        if (existing) {
+          existing.event = ev;
+          existing.receivedAt = ev.receivedAt || existing.receivedAt;
+          existing.subject = ev.subject || existing.subject;
+        } else {
+          bySender.set(key, {
+            senderKey: key,
+            senderAddress: ev.senderAddress || '',
+            subject: ev.subject || '',
+            receivedAt: ev.receivedAt || '',
+            event: ev,
+            orders: [],
+          });
+        }
+      }
+
+      for (const ord of ordersData) {
+        const key = (ord.senderAddress || '').toLowerCase().trim();
+        if (!key) continue;
+        const existing = bySender.get(key);
+        if (existing) {
+          existing.orders.push(ord);
+        } else {
+          bySender.set(key, {
+            senderKey: key,
+            senderAddress: ord.senderAddress || '',
+            subject: ord.subject || '',
+            receivedAt: ord.createdAt || '',
+            orders: [ord],
+          });
+        }
+      }
+
+      setPendingItems(Array.from(bySender.values()).sort(
+        (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
+      ));
+      setCustomerEmails(emailsWithClients);
       setClients(clientsData);
     } catch (error) {
       console.error('Error loading unknown clients data:', error);
@@ -108,95 +170,98 @@ export default function UnknownClients() {
     loadData();
   }, []);
 
-  const filteredEvents = useMemo(() => {
-    if (!searchQuery.trim()) return events;
+  const filteredPending = useMemo(() => {
+    if (!searchQuery.trim()) return pendingItems;
     const q = searchQuery.toLowerCase();
-    return events.filter(
-      (e) =>
-        e.senderAddress?.toLowerCase().includes(q) ||
-        e.subject?.toLowerCase().includes(q)
+    return pendingItems.filter(
+      (p) =>
+        p.senderAddress?.toLowerCase().includes(q) ||
+        p.subject?.toLowerCase().includes(q) ||
+        p.orders.some((o) => o.orderCode?.toLowerCase().includes(q))
     );
-  }, [events, searchQuery]);
+  }, [pendingItems, searchQuery]);
 
-  const filteredOrders = useMemo(() => {
-    if (!searchQuery.trim()) return ordersWithoutClient;
+  const filteredEmails = useMemo(() => {
+    if (!searchQuery.trim()) return customerEmails;
     const q = searchQuery.toLowerCase();
-    return ordersWithoutClient.filter(
-      (o) =>
-        o.senderAddress?.toLowerCase().includes(q) ||
-        o.subject?.toLowerCase().includes(q) ||
-        o.orderCode?.toLowerCase().includes(q)
+    return customerEmails.filter(
+      (ce) =>
+        ce.email?.toLowerCase().includes(q) ||
+        ce.clientName?.toLowerCase().includes(q) ||
+        ce.clientCode?.toLowerCase().includes(q)
     );
-  }, [ordersWithoutClient, searchQuery]);
+  }, [customerEmails, searchQuery]);
 
-  const handleOpenAssignSender = (event: UnknownClientEvent) => {
-    setAssignSenderModal({
-      open: true,
-      email: event.senderAddress,
-      subject: event.subject,
-      eventId: event.id,
+  const handleOpenAssign = (item: PendingItem) => {
+    setAssignModal({
+      senderAddress: item.senderAddress,
+      eventId: item.event?.id,
+      orders: item.orders,
     });
-    setSelectedClientForSender('');
+    setSelectedClient('');
   };
 
-  const handleAssignSender = async () => {
-    if (!assignSenderModal || !selectedClientForSender) return;
-    setSavingSender(true);
+  const handleAssign = async () => {
+    if (!assignModal || !selectedClient) return;
+    setSaving(true);
     try {
-      const result = await addCustomerEmail(
-        selectedClientForSender,
-        assignSenderModal.email
-      );
-      if (result.success) {
-        toast.success(result.message);
-        setAssignSenderModal(null);
-        setEvents((prev) => prev.filter((e) => e.senderAddress?.toLowerCase().trim() !== assignSenderModal.email?.toLowerCase().trim()));
-        loadData(true);
-      } else {
-        toast.error(result.message);
+      // 1. Add sender to customer_emails (if new sender - ignore "ya existe")
+      if (assignModal.senderAddress) {
+        const addRes = await addCustomerEmail(selectedClient, assignModal.senderAddress);
+        if (!addRes.success && !addRes.message.includes('ya está asociado') && !addRes.message.includes('ya existe')) {
+          toast.error(addRes.message);
+          setSaving(false);
+          return;
+        }
       }
+      // 2. Assign all orders to the client
+      for (const ord of assignModal.orders) {
+        await assignClientToOrder(ord.id, selectedClient);
+      }
+      toast.success(
+        assignModal.orders.length > 0
+          ? `Cliente asignado. ${assignModal.orders.length} pedido(s) actualizado(s).`
+          : 'Email asociado correctamente al cliente'
+      );
+      setAssignModal(null);
+      loadData(true);
     } catch (error) {
-      toast.error('Error al asociar email');
+      toast.error('Error al asignar');
     } finally {
-      setSavingSender(false);
+      setSaving(false);
     }
   };
 
-  const handleOpenAssignOrder = (order: OrderWithoutClient) => {
-    setAssignOrderModal(order);
-    setSelectedClientForOrder('');
-  };
-
-  const handleAssignOrder = async () => {
-    if (!assignOrderModal || !selectedClientForOrder) return;
-    setSavingOrder(true);
+  const handleDismiss = async (item: PendingItem) => {
+    const key = item.senderKey;
+    setDismissing(key);
     try {
-      const result = await assignClientToOrder(
-        assignOrderModal.id,
-        selectedClientForOrder
-      );
-      if (result.success) {
-        toast.success(result.message);
-        setAssignOrderModal(null);
-        setOrdersWithoutClient((prev) => prev.filter((o) => o.id !== assignOrderModal.id));
-        loadData(true);
-      } else {
-        toast.error(result.message);
+      if (item.event) {
+        const res = await dismissUnknownClientEvent(item.event.id);
+        if (!res.success) {
+          toast.error(res.message);
+          return;
+        }
       }
-    } catch (error) {
-      toast.error('Error al asignar cliente');
+      for (const ord of item.orders) {
+        await dismissOrderPending(ord.id);
+      }
+      toast.success('Descartado correctamente');
+      setPendingItems((prev) => prev.filter((p) => p.senderKey !== key));
+    } catch {
+      toast.error('Error al descartar');
     } finally {
-      setSavingOrder(false);
+      setDismissing(null);
     }
   };
 
-  const eventColumns: Column<UnknownClientEvent>[] = [
+  const pendingColumns: Column<PendingItem>[] = [
     {
       key: 'senderAddress',
       header: 'Remitente',
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-muted-foreground" />
+          <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="font-medium">{row.senderAddress || '—'}</span>
         </div>
       ),
@@ -205,10 +270,34 @@ export default function UnknownClients() {
       key: 'subject',
       header: 'Asunto',
       cell: (row) => (
-        <span className="text-muted-foreground truncate max-w-[300px] block">
+        <span className="text-muted-foreground truncate max-w-[280px] block">
           {row.subject || '—'}
         </span>
       ),
+    },
+    {
+      key: 'orders',
+      header: 'Pedidos',
+      cell: (row) =>
+        row.orders.length > 0 ? (
+          <div className="flex flex-wrap gap-1">
+            {row.orders.slice(0, 3).map((o) => (
+              <Link
+                key={o.id}
+                to={`/orders/${o.id}`}
+                className="text-primary hover:underline text-sm"
+              >
+                {o.orderCode}
+              </Link>
+            ))}
+            {row.orders.length > 3 && (
+              <span className="text-muted-foreground text-sm">+{row.orders.length - 3}</span>
+            )}
+          </div>
+        ) : (
+          <span className="text-muted-foreground text-sm">—</span>
+        ),
+      className: 'w-48',
     },
     {
       key: 'receivedAt',
@@ -217,78 +306,87 @@ export default function UnknownClients() {
         row.receivedAt
           ? format(new Date(row.receivedAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale })
           : '—',
-      className: 'w-40',
+      className: 'w-36',
     },
     {
       key: 'actions',
       header: '',
       cell: (row) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleOpenAssignSender(row)}
-        >
-          <UserPlus className="h-4 w-4 mr-1" />
-          Asignar a cliente
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleOpenAssign(row);
+            }}
+          >
+            <UserPlus className="h-4 w-4 mr-1" />
+            Asignar
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleDismiss(row);
+            }}
+            disabled={dismissing === row.senderKey}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            {dismissing === row.senderKey ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <>
+                <Trash2 className="h-4 w-4 mr-1" />
+                Descartar
+              </>
+            )}
+          </Button>
+        </div>
       ),
-      className: 'w-40',
+      className: 'w-48',
     },
   ];
 
-  const orderColumns: Column<OrderWithoutClient>[] = [
+  const emailColumns: Column<CustomerEmailWithClient>[] = [
     {
-      key: 'orderCode',
-      header: 'Pedido',
-      cell: (row) => (
-        <Link
-          to={`/orders/${row.id}`}
-          className="font-medium text-primary hover:underline"
-        >
-          {row.orderCode}
-        </Link>
-      ),
-    },
-    {
-      key: 'senderAddress',
-      header: 'Remitente',
+      key: 'clientName',
+      header: 'Cliente',
       cell: (row) => (
         <div className="flex items-center gap-2">
-          <Mail className="h-4 w-4 text-muted-foreground" />
-          <span>{row.senderAddress || '—'}</span>
+          <Users className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="font-medium">{row.clientName || row.clientCode}</span>
+          <span className="text-muted-foreground text-sm">({row.clientCode})</span>
         </div>
       ),
     },
     {
-      key: 'subject',
-      header: 'Asunto',
+      key: 'email',
+      header: 'Email',
       cell: (row) => (
-        <span className="text-muted-foreground truncate max-w-[250px] block">
-          {row.subject || '—'}
-        </span>
+        <span className="font-mono text-sm">{row.email || '—'}</span>
       ),
     },
     {
-      key: 'createdAt',
-      header: 'Creado',
-      cell: (row) =>
-        format(new Date(row.createdAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale }),
-      className: 'w-40',
+      key: 'emailType',
+      header: 'Tipo',
+      cell: (row) => (
+        <Badge variant="outline" className="font-normal">
+          {row.emailType || 'PRIMARY'}
+        </Badge>
+      ),
+      className: 'w-24',
     },
     {
-      key: 'actions',
-      header: '',
+      key: 'active',
+      header: 'Activo',
       cell: (row) => (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleOpenAssignOrder(row)}
-        >
-          <UserPlus className="h-4 w-4 mr-1" />
-          Asignar cliente
-        </Button>
+        <Badge variant={row.active ? 'default' : 'secondary'}>
+          {row.active ? 'Sí' : 'No'}
+        </Badge>
       ),
-      className: 'w-40',
+      className: 'w-20',
     },
   ];
 
@@ -302,7 +400,7 @@ export default function UnknownClients() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="page-header">
@@ -311,8 +409,8 @@ export default function UnknownClients() {
             Clientes sin asignar
           </h1>
           <p className="page-description">
-            Remitentes no reconocidos y pedidos sin cliente. Asigna emails a clientes para
-            que futuros pedidos se procesen correctamente.
+            Remitentes no reconocidos y pedidos sin cliente. Asigna emails a clientes o
+            descarta los que no quieras tratar.
           </p>
         </div>
         <Button
@@ -330,201 +428,128 @@ export default function UnknownClients() {
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Buscar por remitente o asunto..."
+          placeholder="Buscar por remitente, asunto o pedido..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="pl-9"
         />
       </div>
 
-      {/* Section: Remitentes no reconocidos */}
+      {/* Section: Pendientes (unified) */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-amber-500" />
-            Remitentes no reconocidos
+            Pendientes de asignar
           </h2>
-          {events.length > 0 && (
+          {pendingItems.length > 0 && (
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-              {events.length} pendiente{events.length !== 1 ? 's' : ''}
+              {pendingItems.length} pendiente{pendingItems.length !== 1 ? 's' : ''}
             </Badge>
           )}
         </div>
         <p className="text-sm text-muted-foreground mb-3">
-          Emails recibidos cuyo remitente no está en customer_emails. Asigna cada email a un
-          cliente para que los próximos pedidos de ese remitente se asocien automáticamente.
+          Remitentes no reconocidos y pedidos sin cliente. Agrupados por email. Asigna o
+          descarta para sacarlos de la lista.
         </p>
         <DataTable
-          columns={eventColumns}
-          data={filteredEvents}
-          keyExtractor={(row) => row.id}
-          emptyMessage="No hay remitentes pendientes de asignar"
+          columns={pendingColumns}
+          data={filteredPending}
+          keyExtractor={(row) => row.senderKey}
+          emptyMessage="No hay pendientes de asignar"
         />
       </div>
 
-      {/* Section: Pedidos sin cliente */}
+      {/* Section: Clientes y emails (customer_emails) */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <FileText className="h-5 w-5 text-muted-foreground" />
-            Pedidos sin cliente asignado
+            <BookUser className="h-5 w-5 text-muted-foreground" />
+            Relación clientes – emails
           </h2>
-          {ordersWithoutClient.length > 0 && (
-            <Badge variant="outline">
-              {ordersWithoutClient.length} pedido{ordersWithoutClient.length !== 1 ? 's' : ''}
-            </Badge>
-          )}
+          <Badge variant="outline">
+            {customerEmails.length} asociación{customerEmails.length !== 1 ? 'es' : ''}
+          </Badge>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
-          Pedidos creados sin cliente. Asigna un cliente para completar el pedido.
+          Emails asociados a clientes en <code className="text-xs">customer_emails</code>.
+          Los futuros pedidos de estos remitentes se asignan automáticamente.
         </p>
         <DataTable
-          columns={orderColumns}
-          data={filteredOrders}
+          columns={emailColumns}
+          data={filteredEmails}
           keyExtractor={(row) => row.id}
-          emptyMessage="No hay pedidos sin cliente"
+          emptyMessage="No hay asociaciones cliente-email"
         />
       </div>
 
-      {/* Modal: Asignar remitente a cliente */}
-      <Dialog
-        open={!!assignSenderModal?.open}
-        onOpenChange={(open) => !open && setAssignSenderModal(null)}
-      >
+      {/* Modal: Asignar */}
+      <Dialog open={!!assignModal} onOpenChange={(open) => !open && setAssignModal(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Asignar remitente a cliente</DialogTitle>
+            <DialogTitle>Asignar a cliente</DialogTitle>
             <DialogDescription>
-              Asocia este email a un cliente. Los futuros pedidos de este remitente se
-              asignarán automáticamente.
+              Asocia este remitente a un cliente. Si tiene pedidos, también se asignarán.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Email (remitente)</Label>
-              <div className="flex items-center gap-2 rounded-md border px-3 py-2 bg-muted/50">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <span className="font-mono text-sm">{assignSenderModal?.email || ''}</span>
-              </div>
-            </div>
-            {assignSenderModal?.subject && (
+          {assignModal && (
+            <div className="space-y-4 py-4">
               <div className="space-y-2">
-                <Label>Asunto</Label>
-                <p className="text-sm text-muted-foreground truncate">
-                  {assignSenderModal.subject}
-                </p>
+                <Label>Remitente</Label>
+                <div className="flex items-center gap-2 rounded-md border px-3 py-2 bg-muted/50">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-mono text-sm">{assignModal.senderAddress}</span>
+                </div>
               </div>
-            )}
-            <div className="space-y-2">
-              <Label>Cliente</Label>
-              <Select
-                value={selectedClientForSender}
-                onValueChange={setSelectedClientForSender}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients
-                    .filter((c) => c.active !== false)
-                    .map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name} ({c.code})
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignSenderModal(null)}>
-              {t.common.cancel}
-            </Button>
-            <Button
-              onClick={handleAssignSender}
-              disabled={!selectedClientForSender || savingSender}
-            >
-              {savingSender ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : (
-                <UserPlus className="h-4 w-4 mr-2" />
-              )}
-              {savingSender ? 'Asociando...' : 'Asociar email'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal: Asignar cliente a pedido */}
-      <Dialog
-        open={!!assignOrderModal}
-        onOpenChange={(open) => !open && setAssignOrderModal(null)}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Asignar cliente al pedido</DialogTitle>
-            <DialogDescription>
-              Selecciona el cliente para este pedido. El pedido quedará asociado
-              correctamente.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {assignOrderModal && (
-              <>
+              {assignModal.orders.length > 0 && (
                 <div className="space-y-2">
-                  <Label>Pedido</Label>
-                  <div className="flex items-center gap-2">
-                    <Link
-                      to={`/orders/${assignOrderModal.id}`}
-                      className="font-medium text-primary hover:underline"
-                    >
-                      {assignOrderModal.orderCode}
-                    </Link>
+                  <Label>Pedidos que se asignarán</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {assignModal.orders.map((o) => (
+                      <Link
+                        key={o.id}
+                        to={`/orders/${o.id}`}
+                        className="text-primary hover:underline text-sm font-medium"
+                      >
+                        {o.orderCode}
+                      </Link>
+                    ))}
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Remitente</Label>
-                  <p className="text-sm text-muted-foreground">
-                    {assignOrderModal.senderAddress || '—'}
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>Cliente</Label>
-                  <Select
-                    value={selectedClientForOrder}
-                    onValueChange={setSelectedClientForOrder}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar cliente..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients
-                        .filter((c) => c.active !== false)
-                        .map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name} ({c.code})
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-          </div>
+              )}
+              <div className="space-y-2">
+                <Label>Cliente</Label>
+                <Select value={selectedClient} onValueChange={setSelectedClient}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cliente..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients
+                      .filter((c) => c.active !== false)
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({c.code})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setAssignOrderModal(null)}>
-              {t.common.cancel}
+            <Button variant="outline" onClick={() => setAssignModal(null)}>
+              {t.common?.cancel || 'Cancelar'}
             </Button>
             <Button
-              onClick={handleAssignOrder}
-              disabled={!selectedClientForOrder || savingOrder}
+              onClick={handleAssign}
+              disabled={!selectedClient || saving}
             >
-              {savingOrder ? (
+              {saving ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
               ) : (
                 <UserPlus className="h-4 w-4 mr-2" />
               )}
-              {savingOrder ? 'Asignando...' : 'Asignar cliente'}
+              {saving ? 'Asignando...' : 'Asignar'}
             </Button>
           </DialogFooter>
         </DialogContent>

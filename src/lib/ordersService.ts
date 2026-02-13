@@ -502,6 +502,52 @@ export async function fetchCustomerEmails() {
   }
 }
 
+export interface CustomerEmailWithClient {
+  id: string;
+  customerId: string;
+  clientName: string;
+  clientCode: string;
+  email: string;
+  emailType: string;
+  active: boolean;
+  createdAt: string;
+}
+
+/**
+ * Fetch customer emails with client name (merged from customer_stg)
+ */
+export async function fetchCustomerEmailsWithClients(): Promise<CustomerEmailWithClient[]> {
+  try {
+    const [emailsRes, clientsRes] = await Promise.all([
+      bvgFetch(`${API_BASE_URL}/customer_emails?order=customer_id.asc&select=id,customer_id,email,email_type,active,created_at`),
+      bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description`),
+    ]);
+    if (!emailsRes.ok) throw new Error('Failed to fetch customer emails');
+    if (!clientsRes.ok) throw new Error('Failed to fetch clients');
+
+    const emails = await emailsRes.json();
+    const clients = await clientsRes.json();
+    const clientMap = new Map(clients.map((c: any) => [String(c.id), { name: c.description || c.id, code: c.id }]));
+
+    return emails.map((row: any) => {
+      const c = clientMap.get(String(row.customer_id)) || { name: row.customer_id, code: row.customer_id };
+      return {
+        id: String(row.id),
+        customerId: row.customer_id,
+        clientName: c.name,
+        clientCode: c.code,
+        email: row.email,
+        emailType: row.email_type || 'PRIMARY',
+        active: row.active !== false,
+        createdAt: row.created_at,
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching customer emails with clients:', error);
+    return [];
+  }
+}
+
 // ========== NEW MONITORING FUNCTIONS ==========
 
 /**
@@ -655,26 +701,68 @@ export async function fetchOrderEvents() {
 
 /**
  * Fetch UNKNOWN_CLIENT events (remitentes no reconocidos)
+ * Excludes events with event_data.dismissed === true
  */
 export async function fetchUnknownClientEvents(limit = 50): Promise<UnknownClientEvent[]> {
   try {
     const response = await bvgFetch(
-      `${API_BASE_URL}/order_events?event_type=eq.UNKNOWN_CLIENT&order=created_at.desc&limit=${limit}`
+      `${API_BASE_URL}/order_events?event_type=eq.UNKNOWN_CLIENT&order=created_at.desc&limit=${limit * 2}`
     );
     if (!response.ok) throw new Error('Failed to fetch unknown client events');
 
     const data = await response.json();
-    return data.map((row: any) => ({
-      id: String(row.id),
-      eventData: row.event_data || {},
-      createdAt: row.created_at,
-      senderAddress: row.event_data?.sender_address || '',
-      subject: row.event_data?.subject || '',
-      receivedAt: row.event_data?.received_at || row.created_at,
-    }));
+    return data
+      .filter((row: any) => !row.event_data?.dismissed)
+      .slice(0, limit)
+      .map((row: any) => ({
+        id: String(row.id),
+        eventData: row.event_data || {},
+        createdAt: row.created_at,
+        senderAddress: row.event_data?.sender_address || '',
+        subject: row.event_data?.subject || '',
+        receivedAt: row.event_data?.received_at || row.created_at,
+      }));
   } catch (error) {
     console.error('Error fetching unknown client events:', error);
     return [];
+  }
+}
+
+/**
+ * Dismiss an UNKNOWN_CLIENT event (mark as discarded, won't show in list)
+ */
+export async function dismissUnknownClientEvent(
+  eventId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const getRes = await bvgFetch(`${API_BASE_URL}/order_events?id=eq.${eventId}&select=event_data`);
+    if (!getRes.ok) throw new Error('Failed to fetch event');
+    const rows = await getRes.json();
+    const current = rows[0]?.event_data || {};
+    const merged = { ...current, dismissed: true };
+
+    const patchRes = await bvgFetch(
+      `${API_BASE_URL}/order_events?id=eq.${eventId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ event_data: merged }),
+      }
+    );
+    if (!patchRes.ok) {
+      const err = await patchRes.text();
+      throw new Error(err || `HTTP ${patchRes.status}`);
+    }
+    return { success: true, message: 'Evento descartado' };
+  } catch (error) {
+    console.error('Error dismissing event:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al descartar',
+    };
   }
 }
 
@@ -757,26 +845,84 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
 
 /**
  * Fetch orders without assigned client
+ * Optionally excludes intake_ids in dismissedIds (from order_pending_dismissed)
  */
-export async function fetchOrdersWithoutClient(limit = 50): Promise<OrderWithoutClient[]> {
+export async function fetchOrdersWithoutClient(
+  limit = 50,
+  dismissedIds: Set<string> = new Set()
+): Promise<OrderWithoutClient[]> {
   try {
     const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?client_id=is.null&order=created_at.desc&limit=${limit}&select=id,order_code,message_id,sender_address,subject,created_at`
+      `${API_BASE_URL}/ordenes_intake?client_id=is.null&order=created_at.desc&limit=${limit * 2}&select=id,order_code,message_id,sender_address,subject,created_at`
     );
     if (!response.ok) throw new Error('Failed to fetch orders without client');
 
     const data = await response.json();
-    return data.map((row: any) => ({
-      id: String(row.id),
-      orderCode: row.order_code || `ORD-${row.id}`,
-      messageId: row.message_id || '',
-      senderAddress: row.sender_address || '',
-      subject: row.subject || '',
-      createdAt: row.created_at,
-    }));
+    return data
+      .filter((row: any) => !dismissedIds.has(String(row.id)))
+      .slice(0, limit)
+      .map((row: any) => ({
+        id: String(row.id),
+        orderCode: row.order_code || `ORD-${row.id}`,
+        messageId: row.message_id || '',
+        senderAddress: row.sender_address || '',
+        subject: row.subject || '',
+        createdAt: row.created_at,
+      }));
   } catch (error) {
     console.error('Error fetching orders without client:', error);
     return [];
+  }
+}
+
+/**
+ * Fetch intake_ids that have been dismissed from "Pedidos sin cliente"
+ */
+export async function fetchDismissedOrderIds(): Promise<Set<string>> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/order_pending_dismissed?select=intake_id`
+    );
+    if (!response.ok) return new Set();
+    const data = await response.json();
+    return new Set(data.map((row: any) => String(row.intake_id)));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Dismiss an order from "Pedidos sin cliente" (hide from list without assigning)
+ */
+export async function dismissOrderPending(
+  intakeId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/order_pending_dismissed`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({ intake_id: parseInt(intakeId, 10) }),
+      }
+    );
+    if (!response.ok) {
+      if (response.status === 409 || response.status === 23505) {
+        return { success: true, message: 'Ya estaba descartado' };
+      }
+      const err = await response.text();
+      throw new Error(err || `HTTP ${response.status}`);
+    }
+    return { success: true, message: 'Pedido descartado de la lista' };
+  } catch (error) {
+    console.error('Error dismissing order:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al descartar',
+    };
   }
 }
 
