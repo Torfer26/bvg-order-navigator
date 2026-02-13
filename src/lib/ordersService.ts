@@ -23,13 +23,15 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
     const ordersData = await ordersResponse.json();
 
     // Map database fields to frontend types with real client names and line counts
-    return ordersData.map((row: any) => ({
+    return ordersData.map((row: any) => {
+      const hasClient = row.client_id != null;
+      return {
       id: String(row.id),
       orderCode: row.order_code || `ORD-${row.id}`,
       messageId: row.message_id || '',
-      clientId: String(row.client_id),
-      // M03: Use real client name from lookup, fallback to template
-      clientName: clientsMap[row.client_id] || `Cliente ${row.client_id}`,
+      clientId: hasClient ? String(row.client_id) : '',
+      // M03: Use real client name from lookup; "Sin asignar" when client_id is null
+      clientName: hasClient ? (clientsMap[row.client_id] || `Cliente ${row.client_id}`) : 'Sin asignar',
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
       status: row.status,
@@ -38,7 +40,8 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       processedAt: row.updated_at,
       // Get real line count from materialized view
       linesCount: lineCountsMap[row.id] || 0,
-    }));
+    };
+    });
   } catch (error) {
     console.error('Error fetching orders:', error);
     return [];

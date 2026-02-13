@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   FileText,
   AlertTriangle,
@@ -13,7 +13,8 @@ import {
   MapPin,
   Send,
   AlertOctagon,
-  Eye
+  Eye,
+  UserX,
 } from 'lucide-react';
 import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
@@ -28,6 +29,7 @@ import { toast } from 'sonner';
 
 export default function Dashboard() {
   const { t, language } = useLanguage();
+  const navigate = useNavigate();
   const dateLocale = language === 'es' ? es : it;
 
   const [kpis, setKpis] = useState<DashboardKPIs>({ 
@@ -374,6 +376,14 @@ export default function Dashboard() {
             <h2 className="section-title flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
               {t.dashboard.recentOrders}
+              {recentOrders.some((o) => !o.clientId || o.clientId === 'null') && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to="/monitoring/unknown-clients" className="gap-1 text-amber-600 hover:text-amber-700">
+                    <UserX className="h-4 w-4" />
+                    {recentOrders.filter((o) => !o.clientId || o.clientId === 'null').length} sin cliente
+                  </Link>
+                </Button>
+              )}
             </h2>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/orders" className="gap-1">
@@ -399,6 +409,11 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2">
                       <span className="font-medium">{order.orderCode}</span>
                       <OrderStatusBadge status={order.status} />
+                      {(!order.clientId || order.clientId === 'null') && (
+                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+                          Sin cliente
+                        </Badge>
+                      )}
                     </div>
                     <p className="mt-0.5 truncate text-sm text-muted-foreground">
                       {order.clientName} • {order.linesCount} {t.dashboard.lines}
@@ -406,6 +421,23 @@ export default function Dashboard() {
                   </div>
 
                   <div className="flex items-center gap-3">
+                    {/* Button to assign client - when no client */}
+                    {(!order.clientId || order.clientId === 'null') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          navigate('/monitoring/unknown-clients');
+                        }}
+                      >
+                        <span className="flex items-center gap-1 text-xs">
+                          <UserX className="h-3 w-3" /> Asignar
+                        </span>
+                      </Button>
+                    )}
                     {/* Quick Action Button - Visible on valid states */}
                     {(['VALIDATING', 'IN_REVIEW', 'RECEIVED'].includes(order.status || '')) && (
                       <Button
