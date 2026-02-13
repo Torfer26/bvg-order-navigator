@@ -16,6 +16,7 @@ import DLQ from "@/pages/DLQ";
 import Analytics from "@/pages/Analytics";
 import Users from "@/pages/Users";
 import Clients from "@/pages/masters/Clients";
+import CustomerEmails from "@/pages/masters/CustomerEmails";
 import Remitentes from "@/pages/masters/Remitentes";
 import Holidays from "@/pages/masters/Holidays";
 import LocationAliases from "@/pages/masters/LocationAliases";
@@ -49,6 +50,7 @@ const App = () => (
                 <Route path="monitoring/logs" element={<LogsAndTraceability />} />
                 <Route path="users" element={<Users />} />
                 <Route path="masters/clients" element={<Clients />} />
+                <Route path="masters/customer-emails" element={<CustomerEmails />} />
                 <Route path="masters/remitentes" element={<Remitentes />} />
                 <Route path="masters/holidays" element={<Holidays />} />
                 <Route path="masters/aliases" element={<LocationAliases />} />

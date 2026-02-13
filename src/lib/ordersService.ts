@@ -718,6 +718,53 @@ export interface OrderWithoutClient {
   createdAt: string;
 }
 
+export type CustomerEmail = {
+  id: string;
+  customerId: string;
+  email: string;
+  emailType: string;
+  active: boolean;
+  createdAt?: string;
+};
+
+/**
+ * Update customer email (e.g. toggle active)
+ */
+export async function updateCustomerEmail(
+  customerEmailId: string,
+  data: { active?: boolean; email?: string; email_type?: string }
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_emails?id=eq.${customerEmailId}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal',
+        },
+        body: JSON.stringify({
+          ...(data.active !== undefined && { active: data.active }),
+          ...(data.email !== undefined && { email: data.email.trim().toLowerCase() }),
+          ...(data.email_type !== undefined && { email_type: data.email_type }),
+          updated_at: new Date().toISOString(),
+        }),
+      }
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+    return { success: true, message: 'Actualizado correctamente' };
+  } catch (error) {
+    console.error('Error updating customer email:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al actualizar',
+    };
+  }
+}
+
 /**
  * Add email to customer_emails (link sender to client)
  */

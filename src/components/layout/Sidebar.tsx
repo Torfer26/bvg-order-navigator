@@ -42,6 +42,7 @@ const navItems: NavItem[] = [
   { to: '/monitoring/unknown-clients', icon: UserX, label: 'Clientes sin asignar', roles: ['admin', 'ops'], section: 'monitoring' },
   { to: '/monitoring/logs', icon: GitBranch, label: 'Logs & Trazabilidad', section: 'monitoring' },
   { to: '/masters/clients', icon: Building2, label: 'Clientes', roles: ['admin'], section: 'masters' },
+  { to: '/masters/customer-emails', icon: Mail, label: 'Clientes y correos', roles: ['admin', 'ops'], section: 'masters' },
   { to: '/masters/remitentes', icon: Package, label: 'Remitentes', roles: ['admin'], section: 'masters' },
   { to: '/masters/holidays', icon: Settings, label: 'Festivos', roles: ['admin'], section: 'masters' },
   { to: '/masters/aliases', icon: Settings, label: 'Alias Localizaciones', roles: ['admin'], section: 'masters' },

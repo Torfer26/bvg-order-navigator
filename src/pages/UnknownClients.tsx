@@ -34,6 +34,7 @@ import {
   fetchUnknownClientEvents,
   fetchOrdersWithoutClient,
   fetchClients,
+  fetchCustomerEmails,
   addCustomerEmail,
   assignClientToOrder,
   type UnknownClientEvent,
@@ -76,12 +77,22 @@ export default function UnknownClients() {
     else setLoading(true);
 
     try {
-      const [eventsData, ordersData, clientsData] = await Promise.all([
+      const [eventsData, ordersData, clientsData, customerEmailsData] = await Promise.all([
         fetchUnknownClientEvents(50),
         fetchOrdersWithoutClient(50),
         fetchClients(),
+        fetchCustomerEmails(),
       ]);
-      setEvents(eventsData);
+      const resolvedEmails = new Set(
+        customerEmailsData
+          .filter((ce) => ce.active !== false && ce.email)
+          .map((ce) => (ce.email as string).toLowerCase().trim())
+      );
+      const pendingEvents = eventsData.filter((e) => {
+        const addr = (e.senderAddress || '').toLowerCase().trim();
+        return addr && !resolvedEmails.has(addr);
+      });
+      setEvents(pendingEvents);
       setOrdersWithoutClient(ordersData);
       setClients(clientsData);
     } catch (error) {
@@ -139,6 +150,7 @@ export default function UnknownClients() {
       if (result.success) {
         toast.success(result.message);
         setAssignSenderModal(null);
+        setEvents((prev) => prev.filter((e) => e.senderAddress?.toLowerCase().trim() !== assignSenderModal.email?.toLowerCase().trim()));
         loadData(true);
       } else {
         toast.error(result.message);
@@ -166,6 +178,7 @@ export default function UnknownClients() {
       if (result.success) {
         toast.success(result.message);
         setAssignOrderModal(null);
+        setOrdersWithoutClient((prev) => prev.filter((o) => o.id !== assignOrderModal.id));
         loadData(true);
       } else {
         toast.error(result.message);
