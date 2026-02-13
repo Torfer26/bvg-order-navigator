@@ -2,7 +2,7 @@
  * Orders Service - Fetches real data from PostgREST API (bvg schema)
  */
 
-import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday, Location, LocationSuggestion } from '@/types';
+import type { OrderIntake, DLQOrder, DashboardKPIs, Holiday, Location, LocationSuggestion, Client } from '@/types';
 import { API_BASE_URL, bvgFetch } from './api';
 
 /**
@@ -447,6 +447,42 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
   }
 }
 
+
+/**
+ * Search clients by name, code or company_code (debounced search box)
+ * Similar to searchLocations - returns clients matching the query
+ */
+export async function searchClients(query: string, limit: number = 15): Promise<Client[]> {
+  try {
+    if (!query || query.length < 2) return [];
+
+    const encoded = encodeURIComponent(`%${query}%`);
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_stg?or=(description.ilike.${encoded},id.ilike.${encoded},company_code.ilike.${encoded})&is_enable=eq.true&limit=${limit}&order=description.asc`
+    );
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    return data.map((row: any) => ({
+      id: row.id,
+      code: row.id,
+      name: row.description || row.id,
+      email: '',
+      active: row.is_enable !== false,
+      createdAt: row.imported_at || '',
+      updatedAt: row.imported_at || '',
+      companyCode: row.company_code,
+      type: row.type,
+      address: row.address,
+      location: row.location,
+      country: row.country,
+    }));
+  } catch (error) {
+    console.error('Error searching clients:', error);
+    return [];
+  }
+}
 
 /**
  * Fetch clients from customer_stg table

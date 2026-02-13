@@ -24,19 +24,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import {
   fetchUnknownClientEvents,
   fetchOrdersWithoutClient,
   fetchDismissedOrderIds,
-  fetchClients,
   fetchCustomerEmails,
   fetchCustomerEmailsWithClients,
   addCustomerEmail,
@@ -51,7 +43,7 @@ import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { toast } from 'sonner';
-import type { Client } from '@/types';
+import { ClientSearchBox } from '@/components/shared/ClientSearchBox';
 
 /** Unified pending item: unique sender with optional event + orders */
 interface PendingItem {
@@ -69,7 +61,6 @@ export default function UnknownClients() {
 
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [customerEmails, setCustomerEmails] = useState<CustomerEmailWithClient[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +72,7 @@ export default function UnknownClients() {
     orders: OrderWithoutClient[];
   } | null>(null);
   const [selectedClient, setSelectedClient] = useState<string>('');
+  const [selectedClientName, setSelectedClientName] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [dismissing, setDismissing] = useState<string | null>(null);
 
@@ -94,10 +86,9 @@ export default function UnknownClients() {
         fetchCustomerEmails(),
       ]);
 
-      const [eventsData, ordersData, clientsData, emailsWithClients] = await Promise.all([
+      const [eventsData, ordersData, emailsWithClients] = await Promise.all([
         fetchUnknownClientEvents(50),
         fetchOrdersWithoutClient(50, dismissedIds),
-        fetchClients(),
         fetchCustomerEmailsWithClients(),
       ]);
 
@@ -156,7 +147,6 @@ export default function UnknownClients() {
         (a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()
       ));
       setCustomerEmails(emailsWithClients);
-      setClients(clientsData);
     } catch (error) {
       console.error('Error loading unknown clients data:', error);
       toast.error('Error al cargar datos');
@@ -199,6 +189,7 @@ export default function UnknownClients() {
       orders: item.orders,
     });
     setSelectedClient('');
+    setSelectedClientName('');
   };
 
   const handleAssign = async () => {
@@ -517,23 +508,16 @@ export default function UnknownClients() {
                   </div>
                 </div>
               )}
-              <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Select value={selectedClient} onValueChange={setSelectedClient}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar cliente..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients
-                      .filter((c) => c.active !== false)
-                      .map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name} ({c.code})
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <ClientSearchBox
+                value={selectedClient}
+                onSelect={(clientId, client) => {
+                  setSelectedClient(clientId);
+                  setSelectedClientName(client?.name ?? '');
+                }}
+                placeholder="Buscar por nombre o código de cliente..."
+                label="Cliente"
+                selectedClientName={selectedClientName || undefined}
+              />
             </div>
           )}
           <DialogFooter>

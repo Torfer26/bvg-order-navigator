@@ -46,18 +46,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { LocationSelectorModal } from '@/components/shared/LocationSelectorModal';
+import { ClientSearchBox } from '@/components/shared/ClientSearchBox';
 import { 
   fetchOrders, 
   fetchOrdersLog, 
@@ -67,13 +61,12 @@ import {
   rejectOrder,
   moveOrderToReview,
   fetchClientWithDefaultLocation,
-  fetchClients,
   assignClientToOrder,
   fetchSenderFallbackForOrder,
   type ClientWithDefaultLocation
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { OrderIntake, OrderLine, OrderEvent, Location, Client } from '@/types';
+import type { OrderIntake, OrderLine, OrderEvent, Location } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -169,8 +162,8 @@ export default function OrderDetail() {
   const [clientInfo, setClientInfo] = useState<ClientWithDefaultLocation | null>(null);
   // Assign client modal (inline, no navigation)
   const [assignClientModalOpen, setAssignClientModalOpen] = useState(false);
-  const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientForAssign, setSelectedClientForAssign] = useState('');
+  const [selectedClientForAssignName, setSelectedClientForAssignName] = useState<string>('');
   const [savingAssign, setSavingAssign] = useState(false);
   // Fallback sender when ordenes_intake.sender_address is empty (e.g. from order_events)
   const [senderFallback, setSenderFallback] = useState<{ senderAddress: string; subject: string } | null>(null);
@@ -348,16 +341,15 @@ export default function OrderDetail() {
   const handleOpenAssignClient = async () => {
     setAssignClientModalOpen(true);
     setSelectedClientForAssign('');
+    setSelectedClientForAssignName('');
     try {
-      const [clientsData, fallback] = await Promise.all([
-        fetchClients(),
-        (!order?.senderAddress && order?.messageId) ? fetchSenderFallbackForOrder(order.messageId) : Promise.resolve({ senderAddress: '', subject: '' }),
-      ]);
-      setClients(clientsData);
+      const fallback = (!order?.senderAddress && order?.messageId)
+        ? await fetchSenderFallbackForOrder(order.messageId)
+        : { senderAddress: '', subject: '' };
       if (fallback.senderAddress || fallback.subject) setSenderFallback(fallback);
     } catch (err) {
-      console.error('Error loading clients:', err);
-      toast.error('Error al cargar clientes');
+      console.error('Error loading assign client data:', err);
+      toast.error('Error al cargar datos');
     }
   };
 
@@ -1036,23 +1028,16 @@ export default function OrderDetail() {
                   <p className="font-medium break-words">{order.subject || senderFallback?.subject || '—'}</p>
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Cliente</Label>
-                <Select value={selectedClientForAssign} onValueChange={setSelectedClientForAssign}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar cliente..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {clients
-                      .filter((c) => c.active !== false)
-                      .map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.name} ({c.code})
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <ClientSearchBox
+                value={selectedClientForAssign}
+                onSelect={(clientId, client) => {
+                  setSelectedClientForAssign(clientId);
+                  setSelectedClientForAssignName(client?.name ?? '');
+                }}
+                placeholder="Buscar por nombre o código de cliente..."
+                label="Cliente"
+                selectedClientName={selectedClientForAssignName || undefined}
+              />
             </div>
           )}
           <DialogFooter>
