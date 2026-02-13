@@ -376,14 +376,21 @@ export default function Dashboard() {
             <h2 className="section-title flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
               {t.dashboard.recentOrders}
-              {recentOrders.some((o) => !o.clientId || o.clientId === 'null') && (
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/monitoring/unknown-clients" className="gap-1 text-amber-600 hover:text-amber-700">
-                    <UserX className="h-4 w-4" />
-                    {recentOrders.filter((o) => !o.clientId || o.clientId === 'null').length} sin cliente
-                  </Link>
-                </Button>
-              )}
+              {(() => {
+                const ordersWithoutClient = recentOrders.filter((o) => !o.clientId || o.clientId === 'null');
+                if (ordersWithoutClient.length === 0) return null;
+                const target = ordersWithoutClient.length === 1
+                  ? `/orders/${ordersWithoutClient[0].id}`
+                  : '/monitoring/unknown-clients';
+                return (
+                  <Button variant="ghost" size="sm" asChild>
+                    <Link to={target} className="gap-1 text-amber-600 hover:text-amber-700">
+                      <UserX className="h-4 w-4" />
+                      {ordersWithoutClient.length} sin cliente
+                    </Link>
+                  </Button>
+                );
+              })()}
             </h2>
             <Button variant="ghost" size="sm" asChild>
               <Link to="/orders" className="gap-1">
@@ -403,20 +410,24 @@ export default function Dashboard() {
                 <Link
                   key={order.id}
                   to={`/orders/${order.id}`}
-                  className="group flex items-center justify-between px-5 py-3 transition-colors hover:bg-muted/50"
+                  className="group flex items-center justify-between gap-3 px-5 py-3 transition-colors hover:bg-muted/50"
                 >
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{order.orderCode}</span>
-                      <OrderStatusBadge status={order.status} />
-                      {(!order.clientId || order.clientId === 'null') && (
-                        <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
-                          Sin cliente
-                        </Badge>
-                      )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium shrink-0">{order.orderCode}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <OrderStatusBadge status={order.status} />
+                        {(!order.clientId || order.clientId === 'null') && (
+                          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs shrink-0">
+                            Sin cliente
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                    <p className="mt-0.5 truncate text-sm text-muted-foreground">
-                      {order.clientName} • {order.linesCount} {t.dashboard.lines}
+                    <p className="mt-1 truncate text-sm text-muted-foreground">
+                      {(!order.clientId || order.clientId === 'null')
+                        ? `${order.linesCount} ${t.dashboard.lines}`
+                        : `${order.clientName} • ${order.linesCount} ${t.dashboard.lines}`}
                     </p>
                   </div>
 
@@ -430,7 +441,7 @@ export default function Dashboard() {
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          navigate('/monitoring/unknown-clients');
+                          navigate(`/orders/${order.id}`);
                         }}
                       >
                         <span className="flex items-center gap-1 text-xs">

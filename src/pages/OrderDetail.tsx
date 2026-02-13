@@ -16,7 +16,8 @@ import {
   MoreHorizontal,
   Ban,
   Eye,
-  Check
+  Check,
+  UserPlus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -721,13 +722,21 @@ export default function OrderDetail() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100">
                 <User className="h-5 w-5 text-blue-600" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-muted-foreground">Cliente</p>
                 <p className="font-semibold text-lg">
                   {clientInfo?.name || order.clientName || 'Sin cliente'}
                 </p>
                 {clientInfo?.address && (
                   <p className="text-sm text-muted-foreground">{clientInfo.address}</p>
+                )}
+                {(!order.clientId || order.clientId === 'null') && (
+                  <Button variant="outline" size="sm" className="mt-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200" asChild>
+                    <Link to="/monitoring/unknown-clients">
+                      <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                      Asignar cliente
+                    </Link>
+                  </Button>
                 )}
               </div>
             </div>
