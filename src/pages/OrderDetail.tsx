@@ -38,6 +38,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
@@ -51,10 +67,12 @@ import {
   rejectOrder,
   moveOrderToReview,
   fetchClientWithDefaultLocation,
+  fetchClients,
+  assignClientToOrder,
   type ClientWithDefaultLocation
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
-import type { OrderIntake, OrderLine, OrderEvent, Location } from '@/types';
+import type { OrderIntake, OrderLine, OrderEvent, Location, Client } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
@@ -148,6 +166,11 @@ export default function OrderDetail() {
   const [rejectReason, setRejectReason] = useState('');
   // Client info with default load location
   const [clientInfo, setClientInfo] = useState<ClientWithDefaultLocation | null>(null);
+  // Assign client modal (inline, no navigation)
+  const [assignClientModalOpen, setAssignClientModalOpen] = useState(false);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClientForAssign, setSelectedClientForAssign] = useState('');
+  const [savingAssign, setSavingAssign] = useState(false);
 
   // Fetch order data from API
   // Function to load order data (can be called for refresh)
@@ -305,6 +328,37 @@ export default function OrderDetail() {
       toast.error(t.orders?.approveError || 'Error al autorizar pedido');
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  const handleOpenAssignClient = async () => {
+    setAssignClientModalOpen(true);
+    setSelectedClientForAssign('');
+    try {
+      const clientsData = await fetchClients();
+      setClients(clientsData);
+    } catch (err) {
+      console.error('Error loading clients:', err);
+      toast.error('Error al cargar clientes');
+    }
+  };
+
+  const handleAssignClient = async () => {
+    if (!order || !selectedClientForAssign) return;
+    setSavingAssign(true);
+    try {
+      const result = await assignClientToOrder(order.id, selectedClientForAssign);
+      if (result.success) {
+        toast.success(result.message);
+        setAssignClientModalOpen(false);
+        await fetchOrderData(false);
+      } else {
+        toast.error(result.message);
+      }
+    } catch (err) {
+      toast.error('Error al asignar cliente');
+    } finally {
+      setSavingAssign(false);
     }
   };
 
@@ -731,12 +785,22 @@ export default function OrderDetail() {
                   <p className="text-sm text-muted-foreground">{clientInfo.address}</p>
                 )}
                 {(!order.clientId || order.clientId === 'null') && (
-                  <Button variant="outline" size="sm" className="mt-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200" asChild>
-                    <Link to="/monitoring/unknown-clients">
+                  <>
+                    <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/50 px-3 py-2 text-sm">
+                      <p className="font-medium text-amber-800">Correo recibido</p>
+                      <p className="mt-0.5 text-amber-700">{order.senderAddress || '—'}</p>
+                      <p className="mt-0.5 truncate text-amber-700/90">{order.subject || '—'}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                      onClick={handleOpenAssignClient}
+                    >
                       <UserPlus className="h-3.5 w-3.5 mr-1.5" />
                       Asignar cliente
-                    </Link>
-                  </Button>
+                    </Button>
+                  </>
                 )}
               </div>
             </div>
@@ -932,6 +996,65 @@ export default function OrderDetail() {
           keyExtractor={(row) => row.id}
         />
       </div>
+
+      {/* Dialog: Asignar cliente (sin salir de la vista) */}
+      <Dialog open={assignClientModalOpen} onOpenChange={setAssignClientModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Asignar cliente al pedido</DialogTitle>
+            <DialogDescription>
+              Contexto del correo para identificar el cliente correcto. Selecciona el cliente debajo.
+            </DialogDescription>
+          </DialogHeader>
+          {order && (
+            <div className="space-y-4 py-4">
+              <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Remitente</Label>
+                  <p className="font-medium">{order.senderAddress || '—'}</p>
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Asunto</Label>
+                  <p className="font-medium break-words">{order.subject || '—'}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Cliente</Label>
+                <Select value={selectedClientForAssign} onValueChange={setSelectedClientForAssign}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar cliente..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients
+                      .filter((c) => c.active !== false)
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name} ({c.code})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAssignClientModalOpen(false)}>
+              {t.common?.cancel || 'Cancelar'}
+            </Button>
+            <Button
+              onClick={handleAssignClient}
+              disabled={!selectedClientForAssign || savingAssign}
+            >
+              {savingAssign ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <UserPlus className="h-4 w-4 mr-2" />
+              )}
+              {savingAssign ? 'Asignando...' : 'Asignar cliente'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Location Selector Modal */}
       <LocationSelectorModal
