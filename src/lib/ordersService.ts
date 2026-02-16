@@ -1104,15 +1104,14 @@ export async function assignClientToOrder(
 }
 
 /**
- * Fetch email triage data
- */
-/**
- * Fetch email triage data (classification results)
- * Uses the actual email_triage table structure
+ * Fetch email triage data (classification: pedido vs no-pedido)
+ * Usa la tabla email_triage con columnas: triage_id, message_id, is_order_email, created_at, reason, etc.
  */
 export async function fetchEmailTriage() {
   try {
-    const response = await bvgFetch(`${API_BASE_URL}/email_triage?order=created_at.desc&limit=200`);
+    const response = await bvgFetch(
+      `${API_BASE_URL}/email_triage?order=created_at.desc&limit=500&select=triage_id,message_id,from_email,subject,is_order_email,reason,created_at`
+    );
     if (!response.ok) {
       console.warn('email_triage table may not exist or is empty');
       return [];
@@ -1121,22 +1120,40 @@ export async function fetchEmailTriage() {
     const data = await response.json();
 
     return data.map((row: any) => ({
-      id: String(row.id),
+      id: String(row.triage_id ?? row.id),
       messageId: row.message_id,
       fromEmail: row.from_email,
       subject: row.subject,
-      receivedAt: row.received_at,
-      classification: row.classification, // e.g., 'ORDER', 'OTHER', 'SPAM'
-      confidence: row.confidence,
-      processingStatus: row.processing_status,
+      isOrderEmail: row.is_order_email === true,
+      reason: row.reason,
       createdAt: row.created_at,
-      // Derived field for backward compatibility
-      isOrderEmail: row.classification === 'ORDER' || row.classification === 'PEDIDO',
     }));
   } catch (error) {
     console.error('Error fetching email triage:', error);
     return [];
   }
+}
+
+/**
+ * Fetch email triage stats for today (total, orders, non-orders, percentage)
+ */
+export async function fetchEmailTriageStats() {
+  const triage = await fetchEmailTriage();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const triageToday = triage.filter((t) => new Date(t.createdAt) >= today);
+  const orderEmails = triageToday.filter((t) => t.isOrderEmail).length;
+  const nonOrderEmails = triageToday.length - orderEmails;
+  const totalToday = triageToday.length;
+  const percentOrders = totalToday > 0 ? Math.round((orderEmails / totalToday) * 100) : 0;
+
+  return {
+    totalToday,
+    orderEmailsToday: orderEmails,
+    nonOrderEmailsToday: nonOrderEmails,
+    percentOrdersToday: percentOrders,
+  };
 }
 
 /**

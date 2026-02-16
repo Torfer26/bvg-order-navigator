@@ -20,7 +20,7 @@ import { KPICard } from '@/components/shared/KPICard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { fetchEmailStats, fetchOrders } from '@/lib/ordersService';
+import { fetchEmailStats, fetchEmailTriageStats } from '@/lib/ordersService';
 import { format, formatDistanceToNow, subDays, startOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -41,8 +41,16 @@ interface EmailRecord {
   isProcessedAsOrder: boolean;
 }
 
+export interface TriageStats {
+  totalToday: number;
+  orderEmailsToday: number;
+  nonOrderEmailsToday: number;
+  percentOrdersToday: number;
+}
+
 export default function EmailMonitoring() {
   const [emails, setEmails] = useState<EmailRecord[]>([]);
+  const [triageStats, setTriageStats] = useState<TriageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | '7d' | '30d' | 'all'>('7d');
@@ -53,8 +61,12 @@ export default function EmailMonitoring() {
     else setLoading(true);
     
     try {
-      const data = await fetchEmailStats();
+      const [data, stats] = await Promise.all([
+        fetchEmailStats(),
+        fetchEmailTriageStats(),
+      ]);
       setEmails(data);
+      setTriageStats(stats);
     } catch (error) {
       console.error('Error loading email monitoring data:', error);
     } finally {
@@ -177,10 +189,37 @@ export default function EmailMonitoring() {
         </div>
       </div>
 
+      {/* Clasificación AI (triaje) - % pedidos vs no-pedidos */}
+      {triageStats && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <h3 className="text-sm font-medium text-primary mb-2 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4" />
+            Clasificación de correos (triaje AI)
+          </h3>
+          <div className="flex flex-wrap items-baseline gap-4">
+            <span className="text-2xl font-bold">{triageStats.totalToday}</span>
+            <span className="text-muted-foreground">clasificados hoy</span>
+            <span className="text-muted-foreground">·</span>
+            <span className="font-medium text-green-700">{triageStats.orderEmailsToday} pedidos</span>
+            <span className="text-lg font-semibold text-primary">
+              ({triageStats.percentOrdersToday}%)
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span className="font-medium text-slate-600">{triageStats.nonOrderEmailsToday} otros</span>
+            <span className="text-sm text-muted-foreground">
+              ({triageStats.totalToday > 0 ? 100 - triageStats.percentOrdersToday : 0}%)
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Correos clasificados por el triaje AI como pedido o no-pedido antes del procesamiento.
+          </p>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KPICard
-          title="Emails Hoy"
+          title="Emails Procesados Hoy"
           value={emailsToday}
           icon={Mail}
           subtitle={`${periodEmails.length} ${periodLabel}`}

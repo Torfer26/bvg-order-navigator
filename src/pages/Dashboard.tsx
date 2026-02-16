@@ -20,7 +20,7 @@ import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders, approveOrderForFTP, getSystemHealthStatus } from '@/lib/ordersService';
+import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders, approveOrderForFTP, getSystemHealthStatus, fetchEmailTriageStats } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { formatDistanceToNow } from 'date-fns';
 import { es, it } from 'date-fns/locale';
@@ -60,6 +60,7 @@ export default function Dashboard() {
   } | null>(null);
   const [loading, setLoading] = useState(true);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
+  const [triageStats, setTriageStats] = useState<{ totalToday: number; orderEmailsToday: number; percentOrdersToday: number } | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -78,16 +79,18 @@ export default function Dashboard() {
   const refreshDashboard = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [kpisData, ordersData, dlqData, healthStatus] = await Promise.all([
+      const [kpisData, ordersData, dlqData, healthStatus, triageData] = await Promise.all([
         fetchDashboardKPIs(),
         fetchOrders(),
         fetchDLQOrders(),
         getSystemHealthStatus(),
+        fetchEmailTriageStats(),
       ]);
       setKpis(kpisData);
       setRecentOrders(ordersData.slice(0, 5));
       setPendingDLQ(dlqData.filter((o) => !o.resolved).slice(0, 5));
       setSystemHealth(healthStatus);
+      setTriageStats(triageData);
     } catch (e) {
       console.error(e);
     } finally {
@@ -281,6 +284,24 @@ export default function Dashboard() {
           iconClassName={kpis.pendingDLQ > 0 ? 'bg-destructive/10' : 'bg-success/10'}
         />
       </div>
+
+      {/* Triaje: % correos pedidos hoy */}
+      {triageStats && triageStats.totalToday > 0 && (
+        <Link to="/monitoring/emails" className="block">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 flex items-center justify-between hover:bg-primary/10 transition-colors">
+            <div className="flex items-center gap-3">
+              <Send className="h-5 w-5 text-primary shrink-0" />
+              <div>
+                <p className="text-sm font-medium">Clasificación de correos (triaje AI)</p>
+                <p className="text-xs text-muted-foreground">
+                  {triageStats.totalToday} clasificados hoy · {triageStats.orderEmailsToday} pedidos ({triageStats.percentOrdersToday}%) · Ver detalle
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+          </div>
+        </Link>
+      )}
 
       {/* Status Distribution - Real data */}
       <div className="section-card">
