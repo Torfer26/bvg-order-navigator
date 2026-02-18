@@ -273,7 +273,7 @@ export async function fetchDailyTrend(dateRange: DateRange): Promise<DailyTrend[
       .map(([date, data]) => ({
         date,
         orders: data.orders,
-        pallets: Math.round(data.pallets),
+        pallets: data.pallets,
         lines: data.lines,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -397,7 +397,7 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
     
     // Calculate unique destinations per client (simplified)
     return Array.from(clientStats.values())
-      .map(s => ({ ...s, totalPallets: Math.round(s.totalPallets) }))
+      .map(s => ({ ...s, totalPallets: s.totalPallets }))
       .sort((a, b) => b.totalOrders - a.totalOrders);
   } catch (error) {
     console.error('Error fetching client stats:', error);
@@ -442,7 +442,7 @@ export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStat
     });
     
     return Array.from(regionStats.values())
-      .map(s => ({ ...s, pallets: Math.round(s.pallets) }))
+      .map(s => ({ ...s, pallets: s.pallets }))
       .sort((a, b) => b.deliveries - a.deliveries);
   } catch (error) {
     console.error('Error fetching region stats:', error);
@@ -490,7 +490,7 @@ export async function fetchTopDestinations(dateRange: DateRange, limit: number =
     });
     
     return Array.from(destStats.values())
-      .map(s => ({ ...s, pallets: Math.round(s.pallets) }))
+      .map(s => ({ ...s, pallets: s.pallets }))
       .sort((a, b) => b.deliveries - a.deliveries)
       .slice(0, limit);
   } catch (error) {
