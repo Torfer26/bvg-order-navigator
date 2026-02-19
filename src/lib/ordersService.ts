@@ -185,6 +185,77 @@ export async function fetchClientWithDefaultLocation(clientId: string): Promise<
 }
 
 /**
+ * Save or update the default load location for a customer
+ * Uses upsert: inserts if not exists, updates if exists
+ */
+export async function saveCustomerDefaultLoadLocation(
+  customerId: string,
+  locationId: number
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const paddedId = customerId.padStart(5, '0');
+
+    const response = await bvgFetch(`${API_BASE_URL}/customer_default_location`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        customer_id: paddedId,
+        location_id: locationId,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Ubicación de carga predeterminada guardada correctamente' };
+  } catch (error) {
+    console.error('Error saving default load location:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al guardar ubicación de carga',
+    };
+  }
+}
+
+/**
+ * Clear the default load location for a customer
+ */
+export async function clearCustomerDefaultLoadLocation(
+  customerId: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const paddedId = customerId.padStart(5, '0');
+
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_default_location?customer_id=eq.${paddedId}`,
+      {
+        method: 'DELETE',
+        headers: { 'Prefer': 'return=minimal' },
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Ubicación de carga predeterminada eliminada' };
+  } catch (error) {
+    console.error('Error clearing default load location:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al eliminar ubicación de carga',
+    };
+  }
+}
+
+/**
  * Fetch order lines for a specific order from ordenes_intake_lineas
  * Includes lookup for destination name from customer_location_stg
  */

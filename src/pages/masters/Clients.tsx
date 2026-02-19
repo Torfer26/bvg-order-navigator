@@ -3,9 +3,14 @@ import { DataTable, type Column } from '@/components/shared/DataTable';
 import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
-import { fetchClients, fetchCustomerEmails } from '@/lib/ordersService';
+import {
+  fetchClients,
+  fetchClientWithDefaultLocation,
+  saveCustomerDefaultLoadLocation,
+  clearCustomerDefaultLoadLocation,
+} from '@/lib/ordersService';
 import { useLanguage, interpolate } from '@/contexts/LanguageContext';
-import type { Client } from '@/types';
+import type { Client, Location } from '@/types';
 import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { Plus, Pencil, Trash2, Loader2 } from 'lucide-react';
@@ -21,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
+import { LocationSearchSelect } from '@/components/shared/LocationSearchSelect';
 
 export default function Clients() {
   const { t, language } = useLanguage();
@@ -32,6 +38,9 @@ export default function Clients() {
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ code: '', name: '', email: '', active: true });
+  const [defaultLoadLocation, setDefaultLoadLocation] = useState<Location | null>(null);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [hasLoadedLocation, setHasLoadedLocation] = useState(false);
 
   useEffect(() => {
     async function loadData() {
@@ -64,10 +73,12 @@ export default function Clients() {
   const openNew = () => {
     setEditingClient(null);
     setFormData({ code: '', name: '', email: '', active: true });
+    setDefaultLoadLocation(null);
+    setHasLoadedLocation(false);
     setIsDialogOpen(true);
   };
 
-  const openEdit = (client: Client) => {
+  const openEdit = async (client: Client) => {
     setEditingClient(client);
     setFormData({
       code: client.code,
@@ -75,11 +86,61 @@ export default function Clients() {
       email: client.email || '',
       active: client.active,
     });
+    setDefaultLoadLocation(null);
+    setHasLoadedLocation(false);
     setIsDialogOpen(true);
+    // Load default load location for this client
+    try {
+      const clientData = await fetchClientWithDefaultLocation(client.id);
+      setHasLoadedLocation(true);
+      if (clientData?.defaultLoadLocation) {
+        setDefaultLoadLocation({
+          id: Number(clientData.defaultLoadLocation.id),
+          name: clientData.defaultLoadLocation.name,
+          address: clientData.defaultLoadLocation.address,
+          city: clientData.defaultLoadLocation.city,
+          province: clientData.defaultLoadLocation.region,
+          zipCode: clientData.defaultLoadLocation.zipCode,
+        });
+      }
+    } catch (err) {
+      console.error('Error loading default load location:', err);
+    }
   };
 
-  const handleSave = () => {
-    if (editingClient) {
+  const handleSave = async () => {
+    if (editingClient && hasLoadedLocation) {
+      // Save default load location (only when we successfully loaded client data)
+      setSavingLocation(true);
+      try {
+        if (defaultLoadLocation) {
+          const result = await saveCustomerDefaultLoadLocation(editingClient.id, defaultLoadLocation.id);
+          if (result.success) {
+            toast.success(result.message);
+          } else {
+            toast.error(result.message);
+            setSavingLocation(false);
+            return;
+          }
+        } else {
+          const result = await clearCustomerDefaultLoadLocation(editingClient.id);
+          if (result.success) {
+            toast.success(result.message);
+          } else {
+            toast.error(result.message);
+            setSavingLocation(false);
+            return;
+          }
+        }
+      } catch (err) {
+        toast.error('Error al guardar ubicación de carga');
+        setSavingLocation(false);
+        return;
+      } finally {
+        setSavingLocation(false);
+      }
+      toast.success(interpolate(t.clients.clientUpdated, { name: formData.name }));
+    } else if (editingClient) {
       toast.success(interpolate(t.clients.clientUpdated, { name: formData.name }));
     } else {
       toast.success(interpolate(t.clients.clientCreated, { name: formData.name }));
@@ -215,12 +276,31 @@ export default function Clients() {
                 onCheckedChange={(checked) => setFormData({ ...formData, active: checked })}
               />
             </div>
+            {editingClient && (
+              <LocationSearchSelect
+                label="Ubicación de carga predeterminada"
+                placeholder="Buscar ubicación de carga..."
+                value={defaultLoadLocation}
+                onChange={setDefaultLoadLocation}
+                disabled={savingLocation}
+                hint="Se usará como punto de carga cuando el pedido no especifique uno en el documento."
+              />
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={savingLocation}>
               {t.common.cancel}
             </Button>
-            <Button onClick={handleSave}>{t.common.save}</Button>
+            <Button onClick={handleSave} disabled={savingLocation}>
+              {savingLocation ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                t.common.save
+              )}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
