@@ -36,9 +36,9 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       senderAddress: row.sender_address || '',
       subject: row.subject || 'Sin asunto',
       status: row.status,
-      // Usar created_at para la hora real de recepción (order_date solo tiene fecha)
-      receivedAt: row.created_at,
-      processedAt: row.updated_at,
+      // Recibido = email_received_at (Outlook receivedDateTime), fallback created_at
+      receivedAt: row.email_received_at ?? row.created_at,
+      processedAt: row.processed_at ?? row.updated_at,
       // Get real line count from materialized view
       linesCount: lineCountsMap[row.id] || 0,
     };
@@ -678,7 +678,7 @@ export async function fetchEmailStats() {
   try {
     const [intakeRes, statsRes, triageRes] = await Promise.all([
       bvgFetch(
-        `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,status,source,payload_json,file_uri`
+        `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,email_received_at,status,source,payload_json,file_uri`
       ),
       bvgFetch(
         `${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=500&select=message_id,has_attachments,attachments_total,attachments_pdf,attachments_excel,attachments_other`
@@ -775,7 +775,7 @@ export async function fetchEmailStats() {
 
       return {
         id: String(row.id),
-        receivedAt: row.created_at,
+        receivedAt: row.email_received_at ?? row.created_at,
         messageId: row.message_id,
         fromAddress,
         fromDomain,
