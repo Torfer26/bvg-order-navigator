@@ -77,6 +77,7 @@ import { format } from 'date-fns';
 import { es, it } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 // ============================================================================
 // Helper: Format event details for display
