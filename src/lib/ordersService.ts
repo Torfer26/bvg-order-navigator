@@ -951,19 +951,25 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
 }
 
 /**
- * Fetch email summary (reason from AI Triage) for order detail.
- * Used to show a human-readable summary instead of raw message_id.
+ * Fetch email summary for order detail.
+ * Prefers operator_summary (AI Triage, orientado al operador) over reason (técnico).
  */
 export async function fetchEmailTriageReason(messageId: string): Promise<string | null> {
   if (!messageId) return null;
 
   try {
     const response = await bvgFetch(
-      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&select=reason&limit=1`
+      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&select=reason,output&limit=1`
     );
     if (!response.ok) return null;
     const data = await response.json();
-    const reason = data[0]?.reason;
+    const row = Array.isArray(data) ? data[0] : null;
+    if (!row) return null;
+
+    const opSummary = row?.output?.operator_summary;
+    if (typeof opSummary === 'string' && opSummary.trim()) return opSummary.trim();
+
+    const reason = row?.reason;
     return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
   } catch {
     return null;
