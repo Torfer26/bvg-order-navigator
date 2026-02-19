@@ -668,17 +668,23 @@ export async function fetchCustomerEmailsWithClients(): Promise<CustomerEmailWit
 // ========== NEW MONITORING FUNCTIONS ==========
 
 /**
- * Fetch email statistics from ordenes_intake, enriched with attachment stats from email_intake_stats.
- * Uses message_id (internetMessageId) to merge both sources for correct attachment display.
+ * Fetch email statistics from ordenes_intake, enriched with:
+ * 1) email_intake_stats (adjuntos para no-pedidos; puede estar vacío)
+ * 2) email_triage.triage_output.sources (fallback: inferir PDF/Excel desde has_relevant del triaje)
+ *
+ * Prioridad: stats > payload/file_uri > email_triage.sources
  */
 export async function fetchEmailStats() {
   try {
-    const [intakeRes, statsRes] = await Promise.all([
+    const [intakeRes, statsRes, triageRes] = await Promise.all([
       bvgFetch(
         `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,status,source,payload_json,file_uri`
       ),
       bvgFetch(
         `${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=500&select=message_id,has_attachments,attachments_total,attachments_pdf,attachments_excel,attachments_other`
+      ).catch(() => null),
+      bvgFetch(
+        `${API_BASE_URL}/email_triage?order=created_at.desc&limit=500&select=message_id,triage_output,output`
       ).catch(() => null),
     ]);
 
@@ -689,10 +695,26 @@ export async function fetchEmailStats() {
 
     const data = await intakeRes.json();
     const statsList = statsRes?.ok ? await statsRes.json() : [];
+    const triageList = triageRes?.ok ? await triageRes.json() : [];
+
     const statsByMsgId = new Map<string, { has_attachments: boolean; attachments_pdf: number; attachments_excel: number; attachments_other: number }>();
     for (const s of statsList) {
       if (s?.message_id) statsByMsgId.set(s.message_id, s);
     }
+
+    const triageByMsgId = new Map<string, { sources?: { pdf?: { has_relevant?: unknown }; excel?: { has_relevant?: unknown } }; preferred_source?: string }>();
+    for (const t of triageList) {
+      if (t?.message_id) {
+        const out = t.triage_output || t.output || {};
+        triageByMsgId.set(t.message_id, {
+          sources: out.sources,
+          preferred_source: out.preferred_source,
+        });
+      }
+    }
+
+    const isRelevant = (v: unknown): boolean =>
+      v === true || v === 'true';
 
     return data.map((row: any) => {
       const stats = row.message_id ? statsByMsgId.get(row.message_id) : null;
@@ -720,6 +742,31 @@ export async function fetchEmailStats() {
             else if (filename.endsWith('.xlsx') || filename.endsWith('.xls') || filename.endsWith('.csv') || mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) attachmentsExcel++;
             else if (filename || mimeType) attachmentsOther++;
           });
+        }
+      }
+
+      if (attachmentsPdf === 0 && attachmentsExcel === 0 && attachmentsOther === 0 && row.message_id) {
+        const triage = triageByMsgId.get(row.message_id);
+        const sources = triage?.sources;
+        const pref = triage?.preferred_source;
+        if (sources) {
+          if (isRelevant(sources.pdf?.has_relevant)) {
+            attachmentsPdf = 1;
+            hasAttachments = true;
+          }
+          if (isRelevant(sources.excel?.has_relevant)) {
+            attachmentsExcel = 1;
+            hasAttachments = true;
+          }
+        }
+        if (attachmentsPdf === 0 && attachmentsExcel === 0 && pref) {
+          if (pref === 'pdf') {
+            attachmentsPdf = 1;
+            hasAttachments = true;
+          } else if (pref === 'excel') {
+            attachmentsExcel = 1;
+            hasAttachments = true;
+          }
         }
       }
 
