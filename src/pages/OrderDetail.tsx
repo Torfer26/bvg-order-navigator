@@ -18,6 +18,7 @@ import {
   Eye,
   Check,
   UserPlus,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -51,6 +52,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { DataTable, type Column } from '@/components/shared/DataTable';
 import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { LocationSelectorModal } from '@/components/shared/LocationSelectorModal';
+import { LocationSearchSelect } from '@/components/shared/LocationSearchSelect';
 import { ClientSearchBox } from '@/components/shared/ClientSearchBox';
 import { 
   fetchOrders, 
@@ -63,6 +65,8 @@ import {
   fetchClientWithDefaultLocation,
   assignClientToOrder,
   fetchSenderFallbackForOrder,
+  saveCustomerDefaultLoadLocation,
+  clearCustomerDefaultLoadLocation,
   type ClientWithDefaultLocation
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -167,6 +171,10 @@ export default function OrderDetail() {
   const [savingAssign, setSavingAssign] = useState(false);
   // Fallback sender when ordenes_intake.sender_address is empty (e.g. from order_events)
   const [senderFallback, setSenderFallback] = useState<{ senderAddress: string; subject: string } | null>(null);
+  // Edit default load location (cliente) from order
+  const [showEditDefaultLocationModal, setShowEditDefaultLocationModal] = useState(false);
+  const [editDefaultLocationValue, setEditDefaultLocationValue] = useState<Location | null>(null);
+  const [savingDefaultLocation, setSavingDefaultLocation] = useState(false);
 
   // Fetch order data from API
   // Function to load order data (can be called for refresh)
@@ -350,6 +358,54 @@ export default function OrderDetail() {
     } catch (err) {
       console.error('Error loading assign client data:', err);
       toast.error('Error al cargar datos');
+    }
+  };
+
+  const handleOpenEditDefaultLocation = () => {
+    if (clientInfo?.defaultLoadLocation) {
+      setEditDefaultLocationValue({
+        id: Number(clientInfo.defaultLoadLocation.id),
+        name: clientInfo.defaultLoadLocation.name,
+        address: clientInfo.defaultLoadLocation.address,
+        city: clientInfo.defaultLoadLocation.city,
+        province: clientInfo.defaultLoadLocation.region,
+        zipCode: clientInfo.defaultLoadLocation.zipCode,
+      });
+    } else {
+      setEditDefaultLocationValue(null);
+    }
+    setShowEditDefaultLocationModal(true);
+  };
+
+  const handleSaveDefaultLocation = async () => {
+    if (!order?.clientId) return;
+    setSavingDefaultLocation(true);
+    try {
+      if (editDefaultLocationValue) {
+        const result = await saveCustomerDefaultLoadLocation(order.clientId, editDefaultLocationValue.id);
+        if (result.success) {
+          toast.success(result.message);
+          setShowEditDefaultLocationModal(false);
+          const updated = await fetchClientWithDefaultLocation(order.clientId);
+          setClientInfo(updated);
+        } else {
+          toast.error(result.message);
+        }
+      } else {
+        const result = await clearCustomerDefaultLoadLocation(order.clientId);
+        if (result.success) {
+          toast.success(result.message);
+          setShowEditDefaultLocationModal(false);
+          const updated = await fetchClientWithDefaultLocation(order.clientId);
+          setClientInfo(updated);
+        } else {
+          toast.error(result.message);
+        }
+      }
+    } catch (err) {
+      toast.error('Error al guardar ubicación de carga');
+    } finally {
+      setSavingDefaultLocation(false);
     }
   };
 
@@ -615,14 +671,31 @@ export default function OrderDetail() {
             </div>
             <p className="text-muted-foreground">{order.clientName}</p>
             {/* Client and Default Load Location */}
-            {clientInfo && clientInfo.defaultLoadLocation && (
+            {clientInfo && (clientInfo.defaultLoadLocation || (hasRole(['admin', 'ops']) && order?.clientId)) && (
               <div className="flex items-center gap-2 mt-1 text-sm text-blue-600">
-                <MapPin className="h-4 w-4" />
-                <span className="font-medium">Ubicación de Carga:</span>
-                <span>{clientInfo.defaultLoadLocation.name}</span>
-                <span className="text-muted-foreground">
-                  ({clientInfo.defaultLoadLocation.city})
-                </span>
+                <MapPin className="h-4 w-4 shrink-0" />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">Ubicación de Carga:</span>
+                  {clientInfo.defaultLoadLocation ? (
+                    <>
+                      <span>{clientInfo.defaultLoadLocation.name}</span>
+                      <span className="text-muted-foreground">
+                        ({clientInfo.defaultLoadLocation.city})
+                      </span>
+                      {hasRole(['admin', 'ops']) && (
+                        <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={handleOpenEditDefaultLocation}>
+                          <Pencil className="h-3 w-3 inline mr-0.5" /> Editar
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    hasRole(['admin', 'ops']) && (
+                      <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" onClick={handleOpenEditDefaultLocation}>
+                        Configurar
+                      </Button>
+                    )
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -777,6 +850,43 @@ export default function OrderDetail() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Dialog para editar ubicación de carga predeterminada del cliente */}
+      <Dialog open={showEditDefaultLocationModal} onOpenChange={setShowEditDefaultLocationModal}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Ubicación de carga predeterminada</DialogTitle>
+            <DialogDescription>
+              Configura la ubicación de carga predeterminada para {clientInfo?.name || 'este cliente'}. Se usará en futuros pedidos cuando el documento no especifique punto de carga.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <LocationSearchSelect
+              label="Ubicación de carga"
+              placeholder="Buscar ubicación..."
+              value={editDefaultLocationValue}
+              onChange={setEditDefaultLocationValue}
+              disabled={savingDefaultLocation}
+              hint="Se usará cuando el pedido no especifique punto de carga en el documento."
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDefaultLocationModal(false)} disabled={savingDefaultLocation}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveDefaultLocation} disabled={savingDefaultLocation}>
+              {savingDefaultLocation ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                'Guardar'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Client and Load Location Info - Always visible */}
       <div className="section-card bg-gradient-to-r from-blue-50 to-slate-50 border-blue-200">
         <div className="p-4">
@@ -820,13 +930,26 @@ export default function OrderDetail() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
                 <MapPin className="h-5 w-5 text-emerald-600" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium text-muted-foreground">Ubicación de Carga</p>
-                  {clientInfo?.defaultLoadLocation && (
-                    <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">
-                      Predeterminada
-                    </Badge>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-muted-foreground">Ubicación de Carga</p>
+                    {clientInfo?.defaultLoadLocation && (
+                      <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-xs">
+                        Predeterminada
+                      </Badge>
+                    )}
+                  </div>
+                  {hasRole(['admin', 'ops']) && order?.clientId && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleOpenEditDefaultLocation}
+                      className="shrink-0 h-8"
+                    >
+                      <Pencil className="h-3.5 w-3.5 mr-1" />
+                      {clientInfo?.defaultLoadLocation ? 'Editar' : 'Configurar'}
+                    </Button>
                   )}
                 </div>
                 {clientInfo?.defaultLoadLocation ? (

@@ -193,6 +193,17 @@ export default function Clients() {
       header: 'Importado',
       cell: (row) => row.createdAt ? format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }) : '-',
     },
+    {
+      key: 'actions',
+      header: t.common.actions || 'Acciones',
+      cell: (row) => (
+        <div className="flex gap-2">
+          <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEdit(row); }} aria-label={t.clients.editClient || 'Editar cliente'}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+        </div>
+      ),
+    },
   ];
 
   if (loading) {
