@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut, User, Bell } from 'lucide-react';
+import { LogOut, User, Bell, Menu } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,12 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { LanguageSwitcher } from '@/components/shared/LanguageSwitcher';
 
-export function Header() {
+interface HeaderProps {
+  onMenuClick?: () => void;
+  isMenuOpen?: boolean;
+}
+
+export function Header({ onMenuClick, isMenuOpen }: HeaderProps) {
   const { user, logout } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -28,9 +33,21 @@ export function Header() {
   const roleLabels = t.roles;
 
   return (
-    <header className="flex h-header items-center justify-between border-b border-border bg-card px-6">
-      <div className="flex items-center gap-4">
-        <h1 className="text-lg font-medium text-foreground">{t.header.consoleTitle}</h1>
+    <header className="flex h-header items-center justify-between border-b border-border bg-card px-4 sm:px-6">
+      <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+        {onMenuClick && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onMenuClick}
+            className="shrink-0 h-10 w-10 md:hidden"
+            aria-label={isMenuOpen ? "Cerrar menú" : "Abrir menú de navegación"}
+            aria-expanded={isMenuOpen}
+          >
+            <Menu className="h-5 w-5" aria-hidden />
+          </Button>
+        )}
+        <h1 className="text-base sm:text-lg font-medium text-foreground truncate">{t.header.consoleTitle}</h1>
       </div>
 
       <div className="flex items-center gap-3">
