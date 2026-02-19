@@ -197,7 +197,7 @@ export default function ExtractionEvaluation() {
                 Métricas detalladas en Grafana → BVG Stack - Overview → fila &quot;Extraction Evaluation&quot;
               </p>
               <Button variant="outline" size="sm" asChild>
-                <a href="/grafana" target="_blank" rel="noopener noreferrer">
+                <a href="/grafana/" target="_blank" rel="noopener noreferrer">
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Abrir Grafana
                 </a>
