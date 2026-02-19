@@ -120,7 +120,7 @@ export function LocationSelectorModal({
           toast.warning(`Dirección asignada, pero: ${aliasResult.message}`);
         }
       } else {
-        toast.success('Dirección de entrega asignada correctamente');
+        toast.success('Dirección de entrega asignada. Tu corrección contribuye a mejorar la extracción automática.');
       }
 
       onLocationSet(line.id, selectedLocation);
