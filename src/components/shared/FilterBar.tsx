@@ -46,7 +46,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
       {filters.map((filter) => {
         if (filter.type === 'search') {
           return (
-            <div key={filter.key} className="relative flex-1 min-w-[200px]">
+            <div key={filter.key} className="relative flex-1 min-w-0 w-full sm:min-w-[200px] sm:w-auto">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder={filter.placeholder || `${t.common.search}...`}
@@ -65,7 +65,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
               value={values[filter.key] || 'all'}
               onValueChange={(v) => onChange(filter.key, v === 'all' ? undefined : v)}
             >
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full min-w-0 sm:w-[180px]">
                 <SelectValue placeholder={filter.label} />
               </SelectTrigger>
               <SelectContent>
@@ -88,7 +88,7 @@ export function FilterBar({ filters, values, onChange, onClear }: FilterBarProps
                 <Button
                   variant="outline"
                   className={cn(
-                    'w-[180px] justify-start text-left font-normal',
+                    'w-full min-w-0 sm:w-[180px] justify-start text-left font-normal',
                     !dateValue && 'text-muted-foreground'
                   )}
                 >

@@ -129,7 +129,7 @@ export default function Login() {
       </div>
 
       {/* Right side - Login form */}
-      <div className="flex flex-1 flex-col px-8 py-12 lg:px-16">
+      <div className="flex flex-1 flex-col px-4 py-8 sm:px-8 sm:py-12 lg:px-16">
         {/* Language switcher in top right */}
         <div className="flex justify-end mb-8">
           <LanguageSwitcher />

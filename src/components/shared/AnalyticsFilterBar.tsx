@@ -240,7 +240,7 @@ export function AnalyticsFilterBar({
             value={filters.comparisonPeriod} 
             onValueChange={(value: ComparisonPeriod) => onFiltersChange({ comparisonPeriod: value })}
           >
-            <SelectTrigger className="h-8 w-[180px] text-xs">
+            <SelectTrigger className="h-8 w-full min-w-0 sm:w-[180px] text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -266,7 +266,7 @@ export function AnalyticsFilterBar({
                   value={filters.clientId || 'all'} 
                   onValueChange={(value) => onFiltersChange({ clientId: value === 'all' ? undefined : value })}
                 >
-                  <SelectTrigger className="h-8 w-[160px] text-xs">
+                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[160px] text-xs">
                     <SelectValue placeholder="Todos los clientes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -289,7 +289,7 @@ export function AnalyticsFilterBar({
                   value={filters.regionId || 'all'} 
                   onValueChange={(value) => onFiltersChange({ regionId: value === 'all' ? undefined : value })}
                 >
-                  <SelectTrigger className="h-8 w-[140px] text-xs">
+                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[140px] text-xs">
                     <SelectValue placeholder="Todas las regiones" />
                   </SelectTrigger>
                   <SelectContent>

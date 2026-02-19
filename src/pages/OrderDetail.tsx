@@ -747,8 +747,8 @@ export default function OrderDetail() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-4 min-w-0">
           <Button variant="ghost" size="icon" asChild>
             <Link to="/orders">
               <ArrowLeft className="h-5 w-5" />
@@ -791,8 +791,9 @@ export default function OrderDetail() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
         {hasRole(['admin', 'ops']) && (order.status === 'error' || order.status === 'pending') && (
-          <Button onClick={handleReprocess} disabled={isReprocessing}>
+          <Button onClick={handleReprocess} disabled={isReprocessing} size="sm" className="h-10 min-w-[44px] sm:h-9 sm:min-w-0">
             {isReprocessing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -811,7 +812,8 @@ export default function OrderDetail() {
             <Button
               onClick={handleApproveForFTP}
               disabled={isApproving}
-              className="bg-green-600 hover:bg-green-700 text-white"
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white h-10 min-w-[44px] sm:h-9 sm:min-w-0"
             >
               {isApproving ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -868,6 +870,7 @@ export default function OrderDetail() {
             </DropdownMenuContent>
           </DropdownMenu>
         )}
+        </div>
       </div>
 
       {/* Dialog para confirmar completado */}

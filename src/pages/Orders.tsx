@@ -275,7 +275,7 @@ export default function Orders() {
         className="mb-6"
         onValueChange={(val) => handleFilterChange('status', val === 'all' ? undefined : val)}
       >
-        <TabsList className="grid w-full grid-cols-5 lg:w-[600px]">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <TabsTrigger value="all">
             Todo <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{statusCounts.all}</span>
           </TabsTrigger>

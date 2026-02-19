@@ -311,7 +311,7 @@ export default function Dashboard() {
             Estado del Pipeline
           </h2>
         </div>
-        <div className="grid gap-4 p-5 sm:grid-cols-5">
+        <div className="grid gap-4 p-5 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
           <Link to="/orders?status=RECEIVED" className="group rounded-lg border p-4 transition-colors hover:bg-muted/50">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Recibidos</span>
@@ -458,7 +458,7 @@ export default function Dashboard() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100 bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
+                        className="h-10 min-w-[44px] sm:h-7 sm:min-w-0 px-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-amber-50 text-amber-700 hover:bg-amber-100 border-amber-200"
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
@@ -475,7 +475,7 @@ export default function Dashboard() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-7 px-2 opacity-0 transition-opacity group-hover:opacity-100 bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 border-green-200"
+                        className="h-10 min-w-[44px] sm:h-7 sm:min-w-0 px-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 border-green-200"
                         onClick={(e) => handleQuickApprove(e, order)}
                         disabled={approvingIds.has(order.id)}
                       >
