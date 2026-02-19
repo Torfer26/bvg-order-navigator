@@ -658,74 +658,61 @@ export async function fetchCustomerEmailsWithClients(): Promise<CustomerEmailWit
 // ========== NEW MONITORING FUNCTIONS ==========
 
 /**
- * Fetch email intake statistics from email_intake_stats
- */
-/**
- * Fetch email statistics from ordenes_intake (real source of processed emails)
- * Column mapping: sender_address (not sender_email), payload_json for attachments
+ * Fetch email statistics from ordenes_intake, enriched with attachment stats from email_intake_stats.
+ * Uses message_id (internetMessageId) to merge both sources for correct attachment display.
  */
 export async function fetchEmailStats() {
   try {
-    // Use ordenes_intake - correct column names: sender_address, payload_json
-    const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,status,source,payload_json,file_uri`
-    );
-    if (!response.ok) {
-      console.error('Failed to fetch ordenes_intake:', response.status);
+    const [intakeRes, statsRes] = await Promise.all([
+      bvgFetch(
+        `${API_BASE_URL}/ordenes_intake?order=created_at.desc&limit=200&select=id,message_id,sender_address,subject,customer_name,created_at,status,source,payload_json,file_uri`
+      ),
+      bvgFetch(
+        `${API_BASE_URL}/email_intake_stats?order=received_at.desc&limit=500&select=message_id,has_attachments,attachments_total,attachments_pdf,attachments_excel,attachments_other`
+      ).catch(() => null),
+    ]);
+
+    if (!intakeRes.ok) {
+      console.error('Failed to fetch ordenes_intake:', intakeRes.status);
       throw new Error('Failed to fetch email stats');
     }
 
-    const data = await response.json();
-    console.log('Fetched ordenes_intake:', data.length, 'records');
+    const data = await intakeRes.json();
+    const statsList = statsRes?.ok ? await statsRes.json() : [];
+    const statsByMsgId = new Map<string, { has_attachments: boolean; attachments_pdf: number; attachments_excel: number; attachments_other: number }>();
+    for (const s of statsList) {
+      if (s?.message_id) statsByMsgId.set(s.message_id, s);
+    }
 
     return data.map((row: any) => {
-      // Parse payload_json for attachment info if available
-      const payload = row.payload_json || {};
-      const attachments = payload.attachments || payload.files || [];
-      
-      let attachmentsPdf = 0;
-      let attachmentsExcel = 0;
-      let attachmentsOther = 0;
-      let hasAttachments = false;
+      const stats = row.message_id ? statsByMsgId.get(row.message_id) : null;
+      let attachmentsPdf = stats?.attachments_pdf ?? 0;
+      let attachmentsExcel = stats?.attachments_excel ?? 0;
+      let attachmentsOther = stats?.attachments_other ?? 0;
+      let hasAttachments = stats?.has_attachments ?? false;
 
-      // Check file_uri for attachment indication
-      if (row.file_uri && row.file_uri !== 'NA' && row.file_uri !== '') {
-        hasAttachments = true;
-        const fileUri = row.file_uri.toLowerCase();
-        if (fileUri.includes('.pdf')) {
-          attachmentsPdf = 1;
-        } else if (fileUri.includes('.xls') || fileUri.includes('.csv')) {
-          attachmentsExcel = 1;
-        } else {
-          attachmentsOther = 1;
+      if (!stats) {
+        const payload = row.payload_json || {};
+        const attachments = payload.attachments || payload.files || [];
+        if (row.file_uri && row.file_uri !== 'NA' && row.file_uri !== '') {
+          hasAttachments = true;
+          const fileUri = row.file_uri.toLowerCase();
+          if (fileUri.includes('.pdf')) attachmentsPdf = 1;
+          else if (fileUri.includes('.xls') || fileUri.includes('.csv')) attachmentsExcel = 1;
+          else attachmentsOther = 1;
+        }
+        if (Array.isArray(attachments) && attachments.length > 0) {
+          hasAttachments = true;
+          attachments.forEach((att: any) => {
+            const filename = (att.filename || att.name || '').toLowerCase();
+            const mimeType = (att.mimeType || att.contentType || '').toLowerCase();
+            if (filename.endsWith('.pdf') || mimeType.includes('pdf')) attachmentsPdf++;
+            else if (filename.endsWith('.xlsx') || filename.endsWith('.xls') || filename.endsWith('.csv') || mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('csv')) attachmentsExcel++;
+            else if (filename || mimeType) attachmentsOther++;
+          });
         }
       }
 
-      // Also check payload attachments array
-      if (Array.isArray(attachments) && attachments.length > 0) {
-        hasAttachments = true;
-        attachments.forEach((att: any) => {
-          const filename = (att.filename || att.name || '').toLowerCase();
-          const mimeType = (att.mimeType || att.contentType || '').toLowerCase();
-          
-          if (filename.endsWith('.pdf') || mimeType.includes('pdf')) {
-            attachmentsPdf++;
-          } else if (
-            filename.endsWith('.xlsx') || 
-            filename.endsWith('.xls') || 
-            filename.endsWith('.csv') ||
-            mimeType.includes('spreadsheet') ||
-            mimeType.includes('excel') ||
-            mimeType.includes('csv')
-          ) {
-            attachmentsExcel++;
-          } else if (filename || mimeType) {
-            attachmentsOther++;
-          }
-        });
-      }
-
-      // Extract domain from email - use sender_address (correct column name)
       const fromAddress = row.sender_address || '';
       const fromDomain = fromAddress.includes('@') ? fromAddress.split('@')[1] : '';
 
