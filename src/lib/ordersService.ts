@@ -951,6 +951,26 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
 }
 
 /**
+ * Fetch email summary (reason from AI Triage) for order detail.
+ * Used to show a human-readable summary instead of raw message_id.
+ */
+export async function fetchEmailTriageReason(messageId: string): Promise<string | null> {
+  if (!messageId) return null;
+
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&select=reason&limit=1`
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const reason = data[0]?.reason;
+    return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch orders without assigned client
  * Optionally excludes intake_ids in dismissedIds (from order_pending_dismissed)
  */

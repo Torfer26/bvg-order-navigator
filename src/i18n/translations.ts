@@ -105,6 +105,9 @@ export interface Translations {
     noOrdersFound: string;
     orderDetail: string;
     messageId: string;
+    emailSummary: string;
+    noSummary: string;
+    technicalDetails: string;
     sender: string;
     received: string;
     processed: string;
@@ -375,6 +378,9 @@ export const translations: Record<Language, Translations> = {
       noOrdersFound: 'No se encontraron pedidos con los filtros seleccionados',
       orderDetail: 'Detalle del Pedido',
       messageId: 'ID Mensaje',
+      emailSummary: 'Resumen del email',
+      noSummary: 'Sin resumen',
+      technicalDetails: 'Detalles técnicos',
       sender: 'Remitente',
       received: 'Recibido',
       processed: 'Procesado',
@@ -623,6 +629,9 @@ export const translations: Record<Language, Translations> = {
       noOrdersFound: 'Nessun ordine trovato con i filtri selezionati',
       orderDetail: 'Dettagli Ordine',
       messageId: 'Message ID',
+      emailSummary: 'Riepilogo email',
+      noSummary: 'Nessun riepilogo',
+      technicalDetails: 'Dettagli tecnici',
       sender: 'Mittente',
       received: 'Ricevuto',
       processed: 'Elaborato',

@@ -55,6 +55,11 @@ import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 import { LocationSelectorModal } from '@/components/shared/LocationSelectorModal';
 import { LocationSearchSelect } from '@/components/shared/LocationSearchSelect';
 import { ClientSearchBox } from '@/components/shared/ClientSearchBox';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { 
   fetchOrders, 
   fetchOrdersLog, 
@@ -66,6 +71,7 @@ import {
   fetchClientWithDefaultLocation,
   assignClientToOrder,
   fetchSenderFallbackForOrder,
+  fetchEmailTriageReason,
   saveCustomerDefaultLoadLocation,
   clearCustomerDefaultLoadLocation,
   cancelOrderLine,
@@ -174,6 +180,8 @@ export default function OrderDetail() {
   const [savingAssign, setSavingAssign] = useState(false);
   // Fallback sender when ordenes_intake.sender_address is empty (e.g. from order_events)
   const [senderFallback, setSenderFallback] = useState<{ senderAddress: string; subject: string } | null>(null);
+  // Resumen del email desde AI Triage (email_triage.reason)
+  const [emailSummary, setEmailSummary] = useState<string | null>(null);
   // Edit default load location (cliente) from order
   const [showEditDefaultLocationModal, setShowEditDefaultLocationModal] = useState(false);
   const [editDefaultLocationValue, setEditDefaultLocationValue] = useState<Location | null>(null);
@@ -198,6 +206,7 @@ export default function OrderDetail() {
 
       if (foundOrder) {
         setOrder(foundOrder);
+        setEmailSummary(null);
 
         // Fetch client info with default load location
         console.log('[OrderDetail] foundOrder.clientId:', foundOrder.clientId);
@@ -241,9 +250,13 @@ export default function OrderDetail() {
         }));
         setLines(mappedLines);
 
-        // Fetch order logs/events
+        // Fetch order logs/events and email summary (reason from AI Triage)
         if (foundOrder.messageId) {
-          const logs = await fetchOrdersLog(foundOrder.messageId);
+          const [logs, summary] = await Promise.all([
+            fetchOrdersLog(foundOrder.messageId),
+            fetchEmailTriageReason(foundOrder.messageId),
+          ]);
+          setEmailSummary(summary ?? null);
           const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
             id: log.id,
             orderCode: foundOrder.orderCode,
@@ -1067,9 +1080,24 @@ export default function OrderDetail() {
             <h2 className="section-title">{t.orders.orderDetail}</h2>
           </div>
           <div className="grid gap-4 p-5 sm:grid-cols-2">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground">{t.orders.messageId}</p>
-              <p className="mt-1 break-all font-mono text-sm">{order.messageId}</p>
+            <div className="sm:col-span-2">
+              <p className="text-sm font-medium text-muted-foreground">{t.orders.emailSummary}</p>
+              <p className="mt-1 text-sm">{emailSummary ?? t.orders.noSummary}</p>
+              {order.messageId && (
+                <Collapsible>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="mt-2 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {t.orders.technicalDetails} ▾
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <p className="mt-1 break-all font-mono text-xs text-muted-foreground">{order.messageId}</p>
+                  </CollapsibleContent>
+                </Collapsible>
+              )}
             </div>
             <div>
               <p className="text-sm font-medium text-muted-foreground">{t.orders.sender}</p>
