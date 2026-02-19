@@ -146,7 +146,7 @@ export function LocationSelectorModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader className="flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <MapPin className="h-5 w-5 text-primary" />
@@ -188,7 +188,7 @@ export function LocationSelectorModal({
         </DialogHeader>
 
         {/* Contenido con scroll */}
-        <ScrollArea className="flex-1 -mx-6 px-6 min-h-0">
+        <ScrollArea className="flex-1 -mx-4 px-4 sm:-mx-6 sm:px-6 min-h-0">
           <div className="space-y-4 py-2 pb-4">
             {/* Suggestions section */}
             {suggestions.length > 0 && (
@@ -363,11 +363,11 @@ export function LocationSelectorModal({
           </div>
         </ScrollArea>
 
-        <DialogFooter className="flex-shrink-0 pt-4 border-t">
-          <Button variant="outline" onClick={handleClose} disabled={isSaving}>
+        <DialogFooter className="flex-shrink-0 pt-4 border-t gap-2">
+          <Button variant="outline" onClick={handleClose} disabled={isSaving} className="w-full sm:w-auto">
             Cancelar
           </Button>
-          <Button onClick={handleConfirm} disabled={!selectedLocation || isSaving}>
+          <Button onClick={handleConfirm} disabled={!selectedLocation || isSaving} className="w-full sm:w-auto h-10 min-w-[44px]">
             {isSaving ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
