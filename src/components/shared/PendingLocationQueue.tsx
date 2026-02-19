@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { 
   MapPin, 
   AlertTriangle, 
@@ -73,6 +74,7 @@ export function PendingLocationQueue({
   onSearchLocations,
 }: PendingLocationQueueProps) {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const displayLines = lines.slice(0, maxItems);
   const hasMore = lines.length > maxItems;
 
@@ -126,20 +128,22 @@ export function PendingLocationQueue({
       </CardHeader>
 
       <CardContent className="pt-0">
-        {/* Queue table */}
+        {/* Queue table / cards */}
         <div className="rounded-lg border border-amber-200/50 dark:border-amber-800/50 overflow-hidden bg-white/60 dark:bg-gray-900/40">
-          {/* Header */}
-          <div className="grid grid-cols-12 gap-3 px-4 py-2 bg-amber-100/50 dark:bg-amber-900/20 text-xs font-medium text-amber-800 dark:text-amber-300 border-b border-amber-200/50 dark:border-amber-800/50">
-            <div className="col-span-2">Pedido</div>
-            <div className="col-span-3">Cliente</div>
-            <div className="col-span-3">Destino (raw)</div>
-            <div className="col-span-1 text-center">Pallets</div>
-            <div className="col-span-1 text-center">Antigüedad</div>
-            <div className="col-span-2 text-right">Acción</div>
-          </div>
+          {/* Header - hidden on mobile (cards show labels inline) */}
+          {!isMobile && (
+            <div className="grid grid-cols-12 gap-3 px-4 py-2 bg-amber-100/50 dark:bg-amber-900/20 text-xs font-medium text-amber-800 dark:text-amber-300 border-b border-amber-200/50 dark:border-amber-800/50">
+              <div className="col-span-2">Pedido</div>
+              <div className="col-span-3">Cliente</div>
+              <div className="col-span-3">Destino (raw)</div>
+              <div className="col-span-1 text-center">Pallets</div>
+              <div className="col-span-1 text-center">Antigüedad</div>
+              <div className="col-span-2 text-right">Acción</div>
+            </div>
+          )}
 
           {/* Rows */}
-          <div className="divide-y divide-amber-100 dark:divide-amber-900/30">
+          <div className={isMobile ? "space-y-3 p-3" : "divide-y divide-amber-100 dark:divide-amber-900/30"}>
             {isLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
@@ -147,11 +151,12 @@ export function PendingLocationQueue({
               </div>
             ) : (
               displayLines.map((line) => (
-                <PendingLocationRow 
+                <PendingLocationRow
                   key={line.lineId}
                   line={line}
                   onAssignLocation={onAssignLocation}
                   onSearchLocations={onSearchLocations}
+                  isCard={isMobile}
                 />
               ))
             )}
@@ -182,12 +187,14 @@ interface PendingLocationRowProps {
   line: PendingLocationLine;
   onAssignLocation?: (lineId: string, locationId: number) => Promise<void>;
   onSearchLocations?: (query: string) => Promise<LocationSuggestion[]>;
+  isCard?: boolean;
 }
 
-function PendingLocationRow({ 
-  line, 
-  onAssignLocation, 
-  onSearchLocations 
+function PendingLocationRow({
+  line,
+  onAssignLocation,
+  onSearchLocations,
+  isCard = false,
 }: PendingLocationRowProps) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(line.rawDestinationText || '');
@@ -224,28 +231,141 @@ function PendingLocationRow({
     }
   };
 
-  const timeAgo = formatDistanceToNow(new Date(line.createdAt), { 
-    addSuffix: false, 
-    locale: es 
+  const timeAgo = formatDistanceToNow(new Date(line.createdAt), {
+    addSuffix: false,
+    locale: es,
   });
+
+  const orderLink = (
+    <Link
+      to={`/orders/${line.orderId}`}
+      className="font-medium text-sm text-primary hover:underline flex items-center gap-1"
+    >
+      {line.orderCode}
+      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+    </Link>
+  );
+
+  const actionButton = (
+    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <DialogTrigger asChild>
+        <Button
+          size="sm"
+          variant="default"
+          className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm h-10 min-w-[44px] sm:h-8 sm:min-w-0"
+        >
+          <MapPin className="h-3.5 w-3.5 mr-1" aria-hidden />
+          Asignar
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[95vw] sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Asignar ubicación</DialogTitle>
+          <DialogDescription>
+            Busca y selecciona el destino para la línea del pedido {line.orderCode}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Line info */}
+        <div className="p-3 rounded-lg bg-muted/50 text-sm space-y-1">
+          <p><strong>Cliente:</strong> {line.clientName}</p>
+          <p><strong>Destino original:</strong> {line.rawDestinationText || 'No especificado'}</p>
+          {line.rawCustomerText && (
+            <p><strong>Consignatario:</strong> {line.rawCustomerText}</p>
+          )}
+          <p><strong>Pallets:</strong> {line.pallets}</p>
+        </div>
+
+        {/* Search */}
+        <div className="flex gap-2">
+          <Input
+            placeholder="Buscar ubicación..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          />
+          <Button onClick={handleSearch} disabled={isSearching}>
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Search className="h-4 w-4" aria-hidden />
+            )}
+          </Button>
+        </div>
+
+        {/* Results */}
+        {searchResults.length > 0 && (
+          <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
+            {searchResults.map((loc) => (
+              <button
+                key={loc.id}
+                type="button"
+                className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors disabled:opacity-50"
+                onClick={() => handleAssign(loc.id, loc.name)}
+                disabled={isAssigning}
+              >
+                <p className="font-medium">{loc.name}</p>
+                <p className="text-sm text-muted-foreground">
+                  {[loc.address, loc.city, loc.province].filter(Boolean).join(', ')}
+                </p>
+                {loc.score !== undefined && (
+                  <Badge variant="outline" className="mt-1 text-xs">
+                    Coincidencia: {(loc.score * 100).toFixed(0)}%
+                  </Badge>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {searchResults.length === 0 && searchQuery && !isSearching && (
+          <p className="text-center text-sm text-muted-foreground py-4">
+            No se encontraron ubicaciones. Intenta con otros términos.
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+
+  if (isCard) {
+    return (
+      <div className="rounded-lg border border-amber-200/50 dark:border-amber-800/50 bg-white dark:bg-gray-900/40 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <div>{orderLink}</div>
+          <Badge variant="secondary" className="font-mono shrink-0">
+            {line.pallets}
+          </Badge>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
+          <span className="truncate" title={line.clientName}>{line.clientName}</span>
+        </div>
+        <div className="flex items-start gap-2 text-sm">
+          <MapPin className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" aria-hidden />
+          <span className="font-medium text-amber-700 dark:text-amber-400 break-words">
+            {line.rawDestinationText || 'Sin especificar'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Clock className="h-3 w-3" aria-hidden />
+            {timeAgo}
+          </span>
+          {actionButton}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid grid-cols-12 gap-3 px-4 py-3 items-center hover:bg-amber-50/50 dark:hover:bg-amber-900/10 transition-colors group">
       {/* Order code */}
-      <div className="col-span-2">
-        <Link 
-          to={`/orders/${line.orderId}`}
-          className="font-medium text-sm text-primary hover:underline flex items-center gap-1"
-        >
-          {line.orderCode}
-          <ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </Link>
-      </div>
+      <div className="col-span-2">{orderLink}</div>
 
       {/* Client */}
       <div className="col-span-3">
         <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+          <Building2 className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden />
           <span className="text-sm truncate" title={line.clientName}>
             {line.clientName}
           </span>
@@ -255,7 +375,7 @@ function PendingLocationRow({
       {/* Raw destination */}
       <div className="col-span-3">
         <div className="flex items-center gap-2">
-          <MapPin className="h-4 w-4 text-amber-500 shrink-0" />
+          <MapPin className="h-4 w-4 text-amber-500 shrink-0" aria-hidden />
           <span className="text-sm font-medium text-amber-700 dark:text-amber-400 truncate" title={line.rawDestinationText}>
             {line.rawDestinationText || 'Sin especificar'}
           </span>
@@ -272,91 +392,13 @@ function PendingLocationRow({
       {/* Time ago */}
       <div className="col-span-1 text-center">
         <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
-          <Clock className="h-3 w-3" />
+          <Clock className="h-3 w-3" aria-hidden />
           <span>{timeAgo}</span>
         </div>
       </div>
 
       {/* Action */}
-      <div className="col-span-2 text-right">
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button 
-              size="sm" 
-              variant="default"
-              className="bg-amber-500 hover:bg-amber-600 text-white shadow-sm"
-            >
-              <MapPin className="h-3.5 w-3.5 mr-1" />
-              Asignar
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Asignar ubicación</DialogTitle>
-              <DialogDescription>
-                Busca y selecciona el destino para la línea del pedido {line.orderCode}
-              </DialogDescription>
-            </DialogHeader>
-
-            {/* Line info */}
-            <div className="p-3 rounded-lg bg-muted/50 text-sm space-y-1">
-              <p><strong>Cliente:</strong> {line.clientName}</p>
-              <p><strong>Destino original:</strong> {line.rawDestinationText || 'No especificado'}</p>
-              {line.rawCustomerText && (
-                <p><strong>Consignatario:</strong> {line.rawCustomerText}</p>
-              )}
-              <p><strong>Pallets:</strong> {line.pallets}</p>
-            </div>
-
-            {/* Search */}
-            <div className="flex gap-2">
-              <Input
-                placeholder="Buscar ubicación..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-              <Button onClick={handleSearch} disabled={isSearching}>
-                {isSearching ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Search className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-
-            {/* Results */}
-            {searchResults.length > 0 && (
-              <div className="max-h-60 overflow-y-auto border rounded-lg divide-y">
-                {searchResults.map((loc) => (
-                  <button
-                    key={loc.id}
-                    className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors disabled:opacity-50"
-                    onClick={() => handleAssign(loc.id, loc.name)}
-                    disabled={isAssigning}
-                  >
-                    <p className="font-medium">{loc.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {[loc.address, loc.city, loc.province].filter(Boolean).join(', ')}
-                    </p>
-                    {loc.score !== undefined && (
-                      <Badge variant="outline" className="mt-1 text-xs">
-                        Coincidencia: {(loc.score * 100).toFixed(0)}%
-                      </Badge>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {searchResults.length === 0 && searchQuery && !isSearching && (
-              <p className="text-center text-sm text-muted-foreground py-4">
-                No se encontraron ubicaciones. Intenta con otros términos.
-              </p>
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+      <div className="col-span-2 text-right">{actionButton}</div>
     </div>
   );
 }
