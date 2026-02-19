@@ -251,10 +251,10 @@ export default function OrderDetail() {
         setLines(mappedLines);
 
         // Fetch order logs/events and email summary (reason from AI Triage)
-        if (foundOrder.messageId) {
+        if (foundOrder.messageId || foundOrder.conversationId) {
           const [logs, summary] = await Promise.all([
             fetchOrdersLog(foundOrder.messageId),
-            fetchEmailTriageReason(foundOrder.messageId),
+            fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
           ]);
           setEmailSummary(summary ?? null);
           const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
@@ -296,14 +296,14 @@ export default function OrderDetail() {
 
   // Fallback: fetch sender from order_events when ordenes_intake.sender_address is empty
   useEffect(() => {
-    if (order && !order.senderAddress && order.messageId) {
-      fetchSenderFallbackForOrder(order.messageId).then((fb) => {
+    if (order && !order.senderAddress && (order.messageId || order.conversationId)) {
+      fetchSenderFallbackForOrder(order.messageId, order.conversationId).then((fb) => {
         if (fb.senderAddress || fb.subject) setSenderFallback(fb);
       });
     } else {
       setSenderFallback(null);
     }
-  }, [order?.id, order?.senderAddress, order?.messageId]);
+  }, [order?.id, order?.senderAddress, order?.messageId, order?.conversationId]);
 
   // Lines now fetched from API in useEffect above
 
@@ -373,8 +373,8 @@ export default function OrderDetail() {
     setSelectedClientForAssign('');
     setSelectedClientForAssignName('');
     try {
-      const fallback = (!order?.senderAddress && order?.messageId)
-        ? await fetchSenderFallbackForOrder(order.messageId)
+      const fallback = (!order?.senderAddress && (order?.messageId || order?.conversationId))
+        ? await fetchSenderFallbackForOrder(order.messageId, order.conversationId)
         : { senderAddress: '', subject: '' };
       if (fallback.senderAddress || fallback.subject) setSenderFallback(fallback);
     } catch (err) {

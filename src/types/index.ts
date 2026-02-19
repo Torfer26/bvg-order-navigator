@@ -32,6 +32,7 @@ export interface OrderIntake {
   id: string;
   orderCode: string;
   messageId: string;
+  conversationId?: string;
   clientId: string;
   clientName: string;
   senderAddress: string;
