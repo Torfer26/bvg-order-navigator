@@ -19,6 +19,7 @@ import {
   Check,
   UserPlus,
   Pencil,
+  XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -67,6 +68,7 @@ import {
   fetchSenderFallbackForOrder,
   saveCustomerDefaultLoadLocation,
   clearCustomerDefaultLoadLocation,
+  cancelOrderLine,
   type ClientWithDefaultLocation
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
@@ -175,6 +177,9 @@ export default function OrderDetail() {
   const [showEditDefaultLocationModal, setShowEditDefaultLocationModal] = useState(false);
   const [editDefaultLocationValue, setEditDefaultLocationValue] = useState<Location | null>(null);
   const [savingDefaultLocation, setSavingDefaultLocation] = useState(false);
+  // Anular línea
+  const [lineToCancel, setLineToCancel] = useState<OrderLine | null>(null);
+  const [isCancellingLine, setIsCancellingLine] = useState(false);
 
   // Fetch order data from API
   // Function to load order data (can be called for refresh)
@@ -229,6 +234,9 @@ export default function OrderDetail() {
           rawCustomerText: line.rawCustomerText,
           locationSetBy: line.locationSetBy,
           locationSetAt: line.locationSetAt,
+          anulada: line.anulada,
+          anuladaAt: line.anuladaAt,
+          anuladaPor: line.anuladaPor,
         }));
         setLines(mappedLines);
 
@@ -508,6 +516,33 @@ export default function OrderDetail() {
     setIsLocationModalOpen(true);
   };
 
+  // Anular línea
+  const handleConfirmCancelLine = async () => {
+    if (!lineToCancel) return;
+    setIsCancellingLine(true);
+    try {
+      const res = await cancelOrderLine(lineToCancel.id, user?.email || 'frontend_user');
+      if (res.success) {
+        setLines((prev) =>
+          prev.map((l) =>
+            l.id === lineToCancel.id
+              ? { ...l, anulada: true, anuladaAt: new Date().toISOString(), anuladaPor: user?.email || 'frontend_user' }
+              : l
+          )
+        );
+        toast.success(res.message);
+        setLineToCancel(null);
+        fetchOrderData(false);
+      } else {
+        toast.error(res.message);
+      }
+    } catch {
+      toast.error('Error al anular la línea');
+    } finally {
+      setIsCancellingLine(false);
+    }
+  };
+
   // Handle when location is successfully set
   const handleLocationSet = (lineId: string, location: Location) => {
     setLines((prevLines) =>
@@ -524,8 +559,8 @@ export default function OrderDetail() {
     );
   };
 
-  // Count of lines needing location
-  const pendingLocationCount = lines.filter(needsLocationSelection).length;
+  // Count of lines needing location (excluye anuladas)
+  const pendingLocationCount = lines.filter((l) => !l.anulada && needsLocationSelection(l)).length;
 
   const lineColumns: Column<OrderLine>[] = [
     { key: 'lineNumber', header: '#', cell: (row) => row.lineNumber, className: 'w-12' },
@@ -534,7 +569,14 @@ export default function OrderDetail() {
       header: t.orders?.consignee || 'Consignatario', 
       cell: (row) => (
         <div className="space-y-0.5">
-          <span className="font-medium">{row.customer}</span>
+          <div className="flex items-center gap-2">
+            <span className={cn('font-medium', row.anulada && 'line-through text-muted-foreground')}>{row.customer}</span>
+            {row.anulada && (
+              <Badge variant="secondary" className="text-xs">
+                Anulada
+              </Badge>
+            )}
+          </div>
           {row.rawDestinationText && (
             <p className="text-xs text-muted-foreground">
               📍 {row.rawDestinationText}
@@ -547,7 +589,7 @@ export default function OrderDetail() {
       key: 'destination', 
       header: t.orders?.deliveryAddress || 'Dirección de Entrega', 
       cell: (row) => {
-        const isPending = needsLocationSelection(row);
+        const isPending = !row.anulada && needsLocationSelection(row);
         
         // Build full address string
         const buildFullAddress = () => {
@@ -612,22 +654,37 @@ export default function OrderDetail() {
         : '-',
       className: 'w-28'
     },
-    // Action column for editing location
+    // Action column: edit location, anular línea
     {
       key: 'actions',
       header: '',
       cell: (row) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => handleOpenLocationModal(row)}
-          className="h-8 px-2"
-          title={t.orders?.editDeliveryAddress || 'Editar dirección de entrega'}
-        >
-          <MapPin className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          {!row.anulada && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOpenLocationModal(row)}
+                className="h-8 px-2"
+                title={t.orders?.editDeliveryAddress || 'Editar dirección de entrega'}
+              >
+                <MapPin className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLineToCancel(row)}
+                className="h-8 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                title="Anular línea"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
       ),
-      className: 'w-12'
+      className: 'w-24'
     },
   ];
 
@@ -845,6 +902,33 @@ export default function OrderDetail() {
                 <Ban className="mr-2 h-4 w-4" />
               )}
               Rechazar Pedido
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmar anulación de línea */}
+      <AlertDialog open={!!lineToCancel} onOpenChange={(open) => !open && setLineToCancel(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Anular línea</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Anular esta línea del pedido? La línea se marcará como anulada y no se incluirá en el conteo ni en la exportación FTP. Esta acción puede deshacerse manualmente en base de datos si fuera necesario.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancellingLine}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleConfirmCancelLine(); }}
+              disabled={isCancellingLine}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isCancellingLine ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <XCircle className="mr-2 h-4 w-4" />
+              )}
+              Anular línea
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1127,6 +1211,7 @@ export default function OrderDetail() {
           columns={lineColumns}
           data={lines}
           keyExtractor={(row) => row.id}
+          getRowClassName={(row) => (row.anulada ? 'opacity-60 bg-muted/30' : '')}
         />
       </div>
 

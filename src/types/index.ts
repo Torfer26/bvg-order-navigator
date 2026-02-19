@@ -58,7 +58,7 @@ export interface LocationSuggestion {
 
 export interface OrderLine {
   id: string;
-  orderIntakeId: string;
+  orderIntakeId?: string;
   lineNumber: number;
   customer: string;       // CLIENTE - nombre del consignatario
   destination: string;    // DESTINO - nombre del punto de entrega
@@ -73,13 +73,17 @@ export interface OrderLine {
   deliveryDate?: string;  // FECHA DE ENTREGA
   observations?: string;  // OBSERVACIONES
   unit: string;           // PLT por defecto
-  // New fields for location suggestions
+  // Location suggestion fields
   locationStatus?: LocationStatus;
   locationSuggestions?: LocationSuggestion[];
   rawDestinationText?: string;
   rawCustomerText?: string;
   locationSetBy?: string;
   locationSetAt?: string;
+  // Cancellation (anulación) - soft delete per line
+  anulada?: boolean;
+  anuladaAt?: string;
+  anuladaPor?: string;
 }
 
 // Location from customer_location_stg for search results

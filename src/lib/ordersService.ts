@@ -309,10 +309,8 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
         id: String(row.id),
         lineNumber: index + 1,
         customer: row.customer_name || 'Sin cliente',
-        // Main destination name
         destination: locationData?.name || row.raw_destination_text || 'Sin destino',
         destinationId: row.destination_id,
-        // Full address details
         destinationAddress: locationData?.address,
         destinationCity: locationData?.city,
         destinationProvince: locationData?.province,
@@ -322,13 +320,15 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
         deliveryDate: row.delivery_date,
         observations: '',
         unit: row.pallet_type || 'PLT',
-        // Location suggestion fields
         locationStatus: row.location_status || (row.destination_id ? 'AUTO' : 'PENDING_LOCATION'),
         locationSuggestions: row.location_suggestions || [],
         rawDestinationText: row.raw_destination_text,
         rawCustomerText: row.raw_customer_text,
         locationSetBy: row.location_set_by,
         locationSetAt: row.location_set_at,
+        anulada: row.anulada === true,
+        anuladaAt: row.anulada_at,
+        anuladaPor: row.anulada_por,
       };
     });
   } catch (error) {
@@ -401,7 +401,7 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
     const [orders, dlqOrders, pendingLocationsResponse] = await Promise.all([
       fetchOrders(),
       fetchDLQOrders(),
-      bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?location_status=eq.PENDING_LOCATION&select=id`),
+      bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?location_status=eq.PENDING_LOCATION&anulada=neq.true&select=id`),
     ]);
 
     // Parse pending locations count
@@ -1833,6 +1833,42 @@ export async function searchLocations(query: string, limit: number = 15): Promis
 }
 
 /**
+ * Cancel (anular) an order line - soft delete. Line remains for audit but is excluded from counts and FTP.
+ */
+export async function cancelOrderLine(
+  lineId: string,
+  cancelledBy: string = 'frontend_user'
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const response = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?id=eq.${lineId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal',
+      },
+      body: JSON.stringify({
+        anulada: true,
+        anulada_at: new Date().toISOString(),
+        anulada_por: cancelledBy,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || `HTTP ${response.status}`);
+    }
+
+    return { success: true, message: 'Línea anulada correctamente' };
+  } catch (error) {
+    console.error('Error cancelling order line:', error);
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Error al anular la línea',
+    };
+  }
+}
+
+/**
  * Set the location for an order line manually
  */
 export async function setLineLocation(
@@ -1929,7 +1965,7 @@ export async function createLocationAlias(
 export async function getPendingLocationCount(intakeId: string): Promise<number> {
   try {
     const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?intake_id=eq.${intakeId}&destination_id=is.null&select=id`,
+      `${API_BASE_URL}/ordenes_intake_lineas?intake_id=eq.${intakeId}&destination_id=is.null&anulada=neq.true&select=id`,
       { headers: { 'Prefer': 'count=exact' } }
     );
 

@@ -25,6 +25,7 @@ interface DataTableProps<T> {
   data: T[];
   keyExtractor: (row: T) => string;
   onRowClick?: (row: T) => void;
+  getRowClassName?: (row: T) => string;
   loading?: boolean;
   emptyMessage?: string;
   pagination?: {
@@ -40,6 +41,7 @@ export function DataTable<T>({
   data,
   keyExtractor,
   onRowClick,
+  getRowClassName,
   loading = false,
   emptyMessage,
   pagination,
@@ -83,7 +85,8 @@ export function DataTable<T>({
                   onClick={() => onRowClick?.(row)}
                   className={cn(
                     'transition-colors',
-                    onRowClick && 'cursor-pointer hover:bg-muted/50'
+                    onRowClick && 'cursor-pointer hover:bg-muted/50',
+                    getRowClassName?.(row)
                   )}
                 >
                   {columns.map((column) => (
