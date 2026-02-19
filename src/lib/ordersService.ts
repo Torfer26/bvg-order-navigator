@@ -29,6 +29,7 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       id: String(row.id),
       orderCode: row.order_code || `ORD-${row.id}`,
       messageId: row.message_id || '',
+      conversationId: row.conversation_id || '',
       clientId: hasClient ? String(row.client_id) : '',
       // M03: Use real client name from lookup; "Sin asignar" when client_id is null
       clientName: hasClient ? (clientsMap[row.client_id] || `Cliente ${row.client_id}`) : 'Sin asignar',
@@ -880,9 +881,12 @@ export interface UnknownClientEvent {
 
 /**
  * Fallback: fetch sender/subject when ordenes_intake has them empty.
- * Tries: 1) order_events (UNKNOWN_CLIENT), 2) email_triage by message_id.
+ * Tries: 1) order_events (UNKNOWN_CLIENT), 2) email_triage by message_id, 3) email_triage by conversation_id.
  */
-export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ senderAddress: string; subject: string }> {
+export async function fetchSenderFallbackForOrder(
+  messageId: string,
+  conversationId?: string
+): Promise<{ senderAddress: string; subject: string }> {
   if (!messageId) return { senderAddress: '', subject: '' };
 
   const empty = { senderAddress: '', subject: '' };
@@ -895,6 +899,21 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
       '';
     const subj = (ed.subject as string) || '';
     return { senderAddress: sender || '', subject: subj || '' };
+  };
+  const extractFromRow = (row: any): { senderAddress: string; subject: string } => {
+    if (!row) return empty;
+    let sender = row.sender_address || row.from_email || row.from || '';
+    if (!sender && row.payload) {
+      const p = row.payload as Record<string, unknown>;
+      sender =
+        (p.sender_address as string) ||
+        (p.from as string) ||
+        (typeof (p.from as any)?.emailAddress?.address === 'string' ? (p.from as any).emailAddress.address : '') ||
+        (p.from_email as string) ||
+        '';
+    }
+    const subj = row.subject || '';
+    return { senderAddress: String(sender || ''), subject: String(subj || '') };
   };
 
   // 1) order_events UNKNOWN_CLIENT
@@ -916,31 +935,38 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
     /* ignore */
   }
 
-  // 2) email_triage by message_id (sender_address, from_email, payload)
-  try {
-    const etRes = await bvgFetch(
-      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&limit=1`
-    );
-    if (etRes.ok) {
-      const etData = await etRes.json();
-      const row = etData[0];
-      if (row) {
-        let sender = row.sender_address || row.from_email || row.from || '';
-        if (!sender && row.payload) {
-          const p = row.payload as Record<string, unknown>;
-          sender =
-            (p.sender_address as string) ||
-            (p.from as string) ||
-            (typeof (p.from as any)?.emailAddress?.address === 'string' ? (p.from as any).emailAddress.address : '') ||
-            (p.from_email as string) ||
-            '';
-        }
-        const subj = row.subject || '';
-        if (sender || subj) return { senderAddress: String(sender || ''), subject: String(subj || '') };
+  // 2) email_triage by message_id
+  if (messageId) {
+    try {
+      const etRes = await bvgFetch(
+        `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&limit=1`
+      );
+      if (etRes.ok) {
+        const etData = await etRes.json();
+        const row = etData[0];
+        const result = extractFromRow(row);
+        if (result.senderAddress || result.subject) return result;
       }
+    } catch {
+      /* fall through */
     }
-  } catch {
-    /* ignore */
+  }
+
+  // 3) Fallback: email_triage por conversation_id (formatos message_id distintos)
+  if (conversationId && conversationId.trim()) {
+    try {
+      const etRes = await bvgFetch(
+        `${API_BASE_URL}/email_triage?conversation_id=eq.${encodeURIComponent(conversationId)}&order=created_at.desc&limit=1`
+      );
+      if (etRes.ok) {
+        const etData = await etRes.json();
+        const row = etData[0];
+        const result = extractFromRow(row);
+        if (result.senderAddress || result.subject) return result;
+      }
+    } catch {
+      /* ignore */
+    }
   }
 
   return empty;
@@ -949,27 +975,56 @@ export async function fetchSenderFallbackForOrder(messageId: string): Promise<{ 
 /**
  * Fetch email summary for order detail.
  * Prefers operator_summary (AI Triage, orientado al operador) over reason (técnico).
+ * ordenes_intake.message_id suele estar en formato Internet; email_triage.message_id en formato Graph.
+ * Usamos conversation_id como fallback porque coincide en ambas tablas.
  */
-export async function fetchEmailTriageReason(messageId: string): Promise<string | null> {
-  if (!messageId) return null;
-
-  try {
-    const response = await bvgFetch(
-      `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&select=reason,output&limit=1`
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const row = Array.isArray(data) ? data[0] : null;
-    if (!row) return null;
-
-    const opSummary = row?.output?.operator_summary;
-    if (typeof opSummary === 'string' && opSummary.trim()) return opSummary.trim();
-
-    const reason = row?.reason;
-    return typeof reason === 'string' && reason.trim() ? reason.trim() : null;
-  } catch {
-    return null;
+export async function fetchEmailTriageReason(
+  messageId: string,
+  conversationId?: string
+): Promise<string | null> {
+  // 1) Buscar por message_id
+  if (messageId) {
+    try {
+      const response = await bvgFetch(
+        `${API_BASE_URL}/email_triage?message_id=eq.${encodeURIComponent(messageId)}&select=reason,output&limit=1`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const row = Array.isArray(data) ? data[0] : null;
+        if (row) {
+          const opSummary = row?.output?.operator_summary;
+          if (typeof opSummary === 'string' && opSummary.trim()) return opSummary.trim();
+          const reason = row?.reason;
+          if (typeof reason === 'string' && reason.trim()) return reason.trim();
+        }
+      }
+    } catch {
+      /* fall through to conversation_id */
+    }
   }
+
+  // 2) Fallback por conversation_id (mismo hilo, formatos message_id distintos)
+  if (conversationId && conversationId.trim()) {
+    try {
+      const response = await bvgFetch(
+        `${API_BASE_URL}/email_triage?conversation_id=eq.${encodeURIComponent(conversationId)}&select=reason,output&order=created_at.desc&limit=1`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const row = Array.isArray(data) ? data[0] : null;
+        if (row) {
+          const opSummary = row?.output?.operator_summary;
+          if (typeof opSummary === 'string' && opSummary.trim()) return opSummary.trim();
+          const reason = row?.reason;
+          if (typeof reason === 'string' && reason.trim()) return reason.trim();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -2018,5 +2073,62 @@ export async function fetchPendingLocationLines(): Promise<any[]> {
   } catch (error) {
     console.error('Error fetching pending location lines:', error);
     return [];
+  }
+}
+
+/**
+ * Fetch extraction evaluation metrics (feedback, manually set lines, DLQ)
+ * Used by Extraction Evaluation operations page
+ */
+export interface ExtractionMetrics {
+  extractionFeedbackTotal: number;
+  linesManuallySetTotal: number;
+  dlqOrdersTotal: number;
+  totalLinesWithDestination: number;
+  correctionRatePct: number | null;
+}
+
+async function getCountFromApi(url: string): Promise<number> {
+  const res = await bvgFetch(url, { headers: { Prefer: 'count=exact' } });
+  const range = res.headers.get('content-range');
+  if (range) {
+    const m = range.match(/\/(\d+)/);
+    if (m) return parseInt(m[1], 10);
+  }
+  if (res.ok) {
+    const data = await res.json();
+    return Array.isArray(data) ? data.length : 0;
+  }
+  return 0;
+}
+
+export async function fetchExtractionMetrics(): Promise<ExtractionMetrics> {
+  try {
+    const [feedback, manual, dlq, totalWithDest] = await Promise.all([
+      getCountFromApi(`${API_BASE_URL}/extraction_feedback?select=id&limit=1`),
+      getCountFromApi(`${API_BASE_URL}/ordenes_intake_lineas?location_status=eq.MANUALLY_SET&select=id&limit=1`),
+      getCountFromApi(`${API_BASE_URL}/dlq_orders?select=id&limit=1`),
+      getCountFromApi(`${API_BASE_URL}/ordenes_intake_lineas?destination_id=not.is.null&select=id&limit=1`),
+    ]);
+
+    const correctionRatePct =
+      totalWithDest > 0 ? Math.round((manual / totalWithDest) * 10000) / 100 : null;
+
+    return {
+      extractionFeedbackTotal: feedback,
+      linesManuallySetTotal: manual,
+      dlqOrdersTotal: dlq,
+      totalLinesWithDestination: totalWithDest,
+      correctionRatePct,
+    };
+  } catch (error) {
+    console.error('Error fetching extraction metrics:', error);
+    return {
+      extractionFeedbackTotal: 0,
+      linesManuallySetTotal: 0,
+      dlqOrdersTotal: 0,
+      totalLinesWithDestination: 0,
+      correctionRatePct: null,
+    };
   }
 }

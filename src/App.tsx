@@ -23,6 +23,7 @@ import LocationAliases from "@/pages/masters/LocationAliases";
 import EmailMonitoring from "@/pages/EmailMonitoring";
 import UnknownClients from "@/pages/UnknownClients";
 import LogsAndTraceability from "@/pages/LogsAndTraceability";
+import ExtractionEvaluation from "@/pages/ExtractionEvaluation";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -48,6 +49,7 @@ const App = () => (
                 <Route path="monitoring/emails" element={<EmailMonitoring />} />
                 <Route path="monitoring/unknown-clients" element={<UnknownClients />} />
                 <Route path="monitoring/logs" element={<LogsAndTraceability />} />
+                <Route path="monitoring/extraction-evaluation" element={<ExtractionEvaluation />} />
                 <Route path="users" element={<Users />} />
                 <Route path="masters/clients" element={<Clients />} />
                 <Route path="masters/customer-emails" element={<CustomerEmails />} />

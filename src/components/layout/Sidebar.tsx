@@ -14,7 +14,8 @@ import {
   GitBranch,
   Activity,
   BarChart3,
-  UserX
+  UserX,
+  Sparkles
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
   { to: '/monitoring/emails', icon: Mail, label: 'Emails', section: 'monitoring' },
   { to: '/monitoring/unknown-clients', icon: UserX, label: 'Clientes sin asignar', roles: ['admin', 'ops'], section: 'monitoring' },
   { to: '/monitoring/logs', icon: GitBranch, label: 'Logs & Trazabilidad', section: 'monitoring' },
+  { to: '/monitoring/extraction-evaluation', icon: Sparkles, label: 'Evaluación Extracción', roles: ['admin', 'ops'], section: 'monitoring' },
   { to: '/masters/clients', icon: Building2, label: 'Clientes', roles: ['admin'], section: 'masters' },
   { to: '/masters/customer-emails', icon: Mail, label: 'Clientes y correos', roles: ['admin', 'ops'], section: 'masters' },
   { to: '/masters/remitentes', icon: Package, label: 'Remitentes', roles: ['admin'], section: 'masters' },
