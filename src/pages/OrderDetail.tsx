@@ -599,6 +599,25 @@ export default function OrderDetail() {
         </div>
       )
     },
+    {
+      key: 'loadPoint',
+      header: 'Ubicación de carga',
+      cell: (row) => {
+        const display = row.loadPointId && row.loadPoint
+          ? (
+              <div className="space-y-0.5">
+                <span className="font-medium text-emerald-700 dark:text-emerald-400">{row.loadPoint}</span>
+                {row.loadPointAddress && (
+                  <p className="text-xs text-muted-foreground">{row.loadPointAddress}</p>
+                )}
+              </div>
+            )
+          : row.rawLoadPoint
+            ? <span className="text-muted-foreground">{row.rawLoadPoint}</span>
+            : <span className="text-muted-foreground">-</span>;
+        return <div>{display}</div>;
+      }
+    },
     { 
       key: 'destination', 
       header: t.orders?.deliveryAddress || 'Dirección de Entrega', 

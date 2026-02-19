@@ -281,12 +281,16 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
     const destIds = lines
       .map((row: any) => row.destination_id)
       .filter((id: any) => id != null);
+    const originIds = lines
+      .map((row: any) => row.origin_id)
+      .filter((id: any) => id != null);
+    const allLocIds = [...new Set([...destIds, ...originIds])];
 
-    // Fetch full location data if there are destination IDs
+    // Fetch full location data (destinations + load points)
     let locationsMap: Record<string, LocationData> = {};
-    if (destIds.length > 0) {
+    if (allLocIds.length > 0) {
       const locResponse = await bvgFetch(
-        `${API_BASE_URL}/customer_location_stg?id=in.(${destIds.join(',')})`
+        `${API_BASE_URL}/customer_location_stg?id=in.(${allLocIds.join(',')})`
       );
       if (locResponse.ok) {
         const locations = await locResponse.json();
@@ -304,6 +308,7 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
 
     return lines.map((row: any, index: number) => {
       const locationData = locationsMap[String(row.destination_id)];
+      const loadPointData = locationsMap[String(row.origin_id)];
       
       return {
         id: String(row.id),
@@ -324,6 +329,10 @@ export async function fetchOrderLines(intakeId: string): Promise<any[]> {
         locationSuggestions: row.location_suggestions || [],
         rawDestinationText: row.raw_destination_text,
         rawCustomerText: row.raw_customer_text,
+        loadPoint: loadPointData?.name,
+        loadPointId: row.origin_id,
+        loadPointAddress: loadPointData?.address,
+        rawLoadPoint: row.raw_load_point,
         locationSetBy: row.location_set_by,
         locationSetAt: row.location_set_at,
         anulada: row.anulada === true,

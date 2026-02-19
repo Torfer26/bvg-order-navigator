@@ -78,6 +78,11 @@ export interface OrderLine {
   locationSuggestions?: LocationSuggestion[];
   rawDestinationText?: string;
   rawCustomerText?: string;
+  /** Punto de recogida / ubicación de carga */
+  loadPoint?: string;
+  loadPointId?: number;
+  loadPointAddress?: string;
+  rawLoadPoint?: string;
   locationSetBy?: string;
   locationSetAt?: string;
   // Cancellation (anulación) - soft delete per line
