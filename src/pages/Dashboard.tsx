@@ -20,7 +20,7 @@ import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { fetchDashboardKPIs, fetchOrders, fetchDLQOrders, approveOrderForFTP, getSystemHealthStatus, fetchEmailTriageStats } from '@/lib/ordersService';
+import { fetchDashboardKPIs, approveOrderForFTP, getSystemHealthStatus, fetchEmailTriageStats } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { formatDistanceToNow } from 'date-fns';
 import { es, it } from 'date-fns/locale';
@@ -79,16 +79,14 @@ export default function Dashboard() {
   const refreshDashboard = async (showLoading = true) => {
     if (showLoading) setLoading(true);
     try {
-      const [kpisData, ordersData, dlqData, healthStatus, triageData] = await Promise.all([
+      const [dashboardData, healthStatus, triageData] = await Promise.all([
         fetchDashboardKPIs(),
-        fetchOrders(),
-        fetchDLQOrders(),
         getSystemHealthStatus(),
         fetchEmailTriageStats(),
       ]);
-      setKpis(kpisData);
-      setRecentOrders(ordersData.slice(0, 5));
-      setPendingDLQ(dlqData.filter((o) => !o.resolved).slice(0, 5));
+      setKpis(dashboardData.kpis);
+      setRecentOrders(dashboardData.recentOrders);
+      setPendingDLQ(dashboardData.pendingDLQ);
       setSystemHealth(healthStatus);
       setTriageStats(triageData);
     } catch (e) {

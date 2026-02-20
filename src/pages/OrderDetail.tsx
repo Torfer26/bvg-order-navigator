@@ -61,7 +61,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { 
-  fetchOrders, 
+  fetchOrderById, 
   fetchOrdersLog, 
   fetchOrderLines, 
   approveOrderForFTP,
@@ -201,85 +201,75 @@ export default function OrderDetail() {
     }
 
     try {
-      const orders = await fetchOrders();
-      const foundOrder = orders.find((o) => o.id === id);
-
-      if (foundOrder) {
-        setOrder(foundOrder);
-        setEmailSummary(null);
-
-        // Fetch client info with default load location
-        console.log('[OrderDetail] foundOrder.clientId:', foundOrder.clientId);
-        if (foundOrder.clientId) {
-          const clientData = await fetchClientWithDefaultLocation(foundOrder.clientId);
-          console.log('[OrderDetail] clientData:', clientData);
-          setClientInfo(clientData);
-        } else {
-          console.log('[OrderDetail] No clientId found on order');
-        }
-
-        // Fetch order lines from ordenes_intake_lineas
-        const orderLines = await fetchOrderLines(id);
-        const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
-          id: line.id,
-          orderIntakeId: id,
-          lineNumber: line.lineNumber,
-          customer: line.customer,
-          destination: line.destination,
-          destinationId: line.destinationId,
-          // Full delivery address details
-          destinationAddress: line.destinationAddress,
-          destinationCity: line.destinationCity,
-          destinationProvince: line.destinationProvince,
-          destinationZipCode: line.destinationZipCode,
-          notes: line.notes,
-          pallets: line.pallets,
-          deliveryDate: line.deliveryDate,
-          observations: line.observations,
-          unit: line.unit || 'PLT',
-          // Campos para sugerencias de ubicación
-          locationStatus: line.locationStatus,
-          locationSuggestions: line.locationSuggestions,
-          rawDestinationText: line.rawDestinationText,
-          rawCustomerText: line.rawCustomerText,
-          locationSetBy: line.locationSetBy,
-          locationSetAt: line.locationSetAt,
-          anulada: line.anulada,
-          anuladaAt: line.anuladaAt,
-          anuladaPor: line.anuladaPor,
-        }));
-        setLines(mappedLines);
-
-        // Fetch order logs/events and email summary (reason from AI Triage)
-        if (foundOrder.messageId || foundOrder.conversationId) {
-          const [logs, summary] = await Promise.all([
-            fetchOrdersLog(foundOrder.messageId),
-            fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
-          ]);
-          setEmailSummary(summary ?? null);
-          const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
-            id: log.id,
-            orderCode: foundOrder.orderCode,
-            eventType: log.step || 'unknown',
-            timestamp: log.createdAt,
-            details: formatEventDetails(log.step, log.info, log.status),
-            actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
-          }));
-          
-          // Deduplicar eventos: mantener solo el primero de cada tipo (step)
-          const seenSteps = new Set<string>();
-          const uniqueEvents = mappedEvents.filter((event) => {
-            if (seenSteps.has(event.eventType)) {
-              return false; // Ya vimos este step, ignorar duplicado
-            }
-            seenSteps.add(event.eventType);
-            return true;
-          });
-          
-          setEvents(uniqueEvents);
-        }
-      } else {
+      const foundOrder = await fetchOrderById(id);
+      if (!foundOrder) {
         setError('Order not found');
+        return;
+      }
+
+      setOrder(foundOrder);
+      setEmailSummary(null);
+
+      // Fetch client info with default load location
+      if (foundOrder.clientId) {
+        const clientData = await fetchClientWithDefaultLocation(foundOrder.clientId);
+        setClientInfo(clientData);
+      } else {
+        setClientInfo(null);
+      }
+
+      // Fetch order lines from ordenes_intake_lineas
+      const orderLines = await fetchOrderLines(id);
+      const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
+        id: line.id,
+        orderIntakeId: id,
+        lineNumber: line.lineNumber,
+        customer: line.customer,
+        destination: line.destination,
+        destinationId: line.destinationId,
+        destinationAddress: line.destinationAddress,
+        destinationCity: line.destinationCity,
+        destinationProvince: line.destinationProvince,
+        destinationZipCode: line.destinationZipCode,
+        notes: line.notes,
+        pallets: line.pallets,
+        deliveryDate: line.deliveryDate,
+        observations: line.observations,
+        unit: line.unit || 'PLT',
+        locationStatus: line.locationStatus,
+        locationSuggestions: line.locationSuggestions,
+        rawDestinationText: line.rawDestinationText,
+        rawCustomerText: line.rawCustomerText,
+        locationSetBy: line.locationSetBy,
+        locationSetAt: line.locationSetAt,
+        anulada: line.anulada,
+        anuladaAt: line.anuladaAt,
+        anuladaPor: line.anuladaPor,
+      }));
+      setLines(mappedLines);
+
+      // Fetch order logs/events and email summary (reason from AI Triage)
+      if (foundOrder.messageId || foundOrder.conversationId) {
+        const [logs, summary] = await Promise.all([
+          fetchOrdersLog(foundOrder.messageId),
+          fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
+        ]);
+        setEmailSummary(summary ?? null);
+        const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
+          id: log.id,
+          orderCode: foundOrder.orderCode,
+          eventType: log.step || 'unknown',
+          timestamp: log.createdAt,
+          details: formatEventDetails(log.step, log.info, log.status),
+          actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
+        }));
+        const seenSteps = new Set<string>();
+        const uniqueEvents = mappedEvents.filter((event) => {
+          if (seenSteps.has(event.eventType)) return false;
+          seenSteps.add(event.eventType);
+          return true;
+        });
+        setEvents(uniqueEvents);
       }
     } catch (err) {
       console.error('Error loading order:', err);

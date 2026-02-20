@@ -50,6 +50,58 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
 }
 
 /**
+ * Fetch a single order by ID (optimized for OrderDetail — avoids fetching 200 orders)
+ */
+export async function fetchOrderById(intakeId: string): Promise<OrderIntake | null> {
+  try {
+    const [orderRes, lineCountRes] = await Promise.all([
+      bvgFetch(`${API_BASE_URL}/ordenes_intake?id=eq.${intakeId}&limit=1`),
+      bvgFetch(`${API_BASE_URL}/order_line_counts?intake_id=eq.${intakeId}&select=intake_id,lines_count`),
+    ]);
+    if (!orderRes.ok) return null;
+    const ordersData = await orderRes.json();
+    if (!Array.isArray(ordersData) || ordersData.length === 0) return null;
+    const row = ordersData[0];
+
+    let clientName = 'Sin asignar';
+    if (row.client_id != null) {
+      const paddedId = String(row.client_id).padStart(5, '0');
+      const clientRes = await bvgFetch(
+        `${API_BASE_URL}/customer_stg?id=eq.${paddedId}&select=description`
+      );
+      if (clientRes.ok) {
+        const clients = await clientRes.json();
+        if (clients.length > 0) clientName = clients[0].description || `Cliente ${row.client_id}`;
+      }
+    }
+
+    let linesCount = 0;
+    if (lineCountRes.ok) {
+      const counts = await lineCountRes.json();
+      if (Array.isArray(counts) && counts.length > 0) linesCount = Number(counts[0].lines_count) || 0;
+    }
+
+    return {
+      id: String(row.id),
+      orderCode: row.order_code || `ORD-${row.id}`,
+      messageId: row.message_id || '',
+      conversationId: row.conversation_id || '',
+      clientId: row.client_id != null ? String(row.client_id) : '',
+      clientName,
+      senderAddress: row.sender_address ?? row.sender_email ?? '',
+      subject: row.subject || 'Sin asunto',
+      status: row.status,
+      receivedAt: row.email_received_at ?? row.created_at,
+      processedAt: row.processed_at ?? row.updated_at,
+      linesCount,
+    };
+  } catch (error) {
+    console.error('Error fetching order by id:', error);
+    return null;
+  }
+}
+
+/**
  * Fetch a map of intake_id -> lines_count from materialized view
  */
 async function fetchLineCountsMap(): Promise<Record<string, number>> {
@@ -119,35 +171,29 @@ export async function fetchClientWithDefaultLocation(clientId: string): Promise<
   try {
     // Pad client ID to match database format (e.g., 6 -> 00006)
     const paddedId = clientId.padStart(5, '0');
-    console.log('[fetchClientWithDefaultLocation] paddedId:', paddedId);
-    
+
     // Fetch client info
     const clientResponse = await bvgFetch(
       `${API_BASE_URL}/customer_stg?id=eq.${paddedId}&select=id,description,address,location,region`
     );
-    
-    console.log('[fetchClientWithDefaultLocation] clientResponse.ok:', clientResponse.ok);
+
     if (!clientResponse.ok) return null;
     const clients = await clientResponse.json();
-    console.log('[fetchClientWithDefaultLocation] clients:', clients);
     if (clients.length === 0) return null;
-    
+
     const client = clients[0];
-    
+
     // Fetch default location
     const defaultLocResponse = await bvgFetch(
       `${API_BASE_URL}/customer_default_location?customer_id=eq.${paddedId}&select=location_id`
     );
-    
+
     let defaultLoadLocation = undefined;
-    
-    console.log('[fetchClientWithDefaultLocation] defaultLocResponse.ok:', defaultLocResponse.ok);
+
     if (defaultLocResponse.ok) {
       const defaultLocs = await defaultLocResponse.json();
-      console.log('[fetchClientWithDefaultLocation] defaultLocs:', defaultLocs);
       if (defaultLocs.length > 0) {
         const locationId = defaultLocs[0].location_id;
-        console.log('[fetchClientWithDefaultLocation] locationId:', locationId);
         
         // Fetch location details
         const locResponse = await bvgFetch(
@@ -401,13 +447,19 @@ export async function fetchHolidays(): Promise<Holiday[]> {
   }
 }
 
+export interface DashboardData {
+  kpis: DashboardKPIs;
+  recentOrders: OrderIntake[];
+  pendingDLQ: DLQOrder[];
+}
+
 /**
- * Fetch dashboard KPIs from real data
+ * Fetch dashboard KPIs plus recent orders and DLQ in a single call (avoids duplicate fetches)
  * Fixed: Now limits avgProcessingTime calculation to last 7 days
  */
-export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
+export async function fetchDashboardKPIs(): Promise<DashboardData> {
   try {
-    // Fetch orders, DLQ, and pending locations in parallel
+    // Fetch orders, DLQ, and pending locations in parallel (single round-trip)
     const [orders, dlqOrders, pendingLocationsResponse] = await Promise.all([
       fetchOrders(),
       fetchDLQOrders(),
@@ -490,7 +542,7 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       ? ((ordersWeek - erroredOrdersWeek - pendingDLQ) / ordersWeek) * 100 
       : 100;
 
-    return {
+    const kpis: DashboardKPIs = {
       ordersToday,
       ordersYesterday,
       ordersWeek,
@@ -499,7 +551,6 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       avgProcessingTime,
       avgProcessingTimeYesterday,
       successRate: Math.max(0, Math.min(100, successRate)),
-      // New operational metrics
       pendingLocations,
       ordersInValidation,
       ordersProcessing,
@@ -507,9 +558,15 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       ordersRejected,
       ordersCompleted,
     };
+
+    return {
+      kpis,
+      recentOrders: orders.slice(0, 5),
+      pendingDLQ: dlqOrders.filter((o) => !o.resolved).slice(0, 5),
+    };
   } catch (error) {
     console.error('Error fetching KPIs:', error);
-    return {
+    const fallbackKpis: DashboardKPIs = {
       ordersToday: 0,
       ordersYesterday: 0,
       ordersWeek: 0,
@@ -524,6 +581,11 @@ export async function fetchDashboardKPIs(): Promise<DashboardKPIs> {
       ordersReceived: 0,
       ordersRejected: 0,
       ordersCompleted: 0,
+    };
+    return {
+      kpis: fallbackKpis,
+      recentOrders: [],
+      pendingDLQ: [],
     };
   }
 }
