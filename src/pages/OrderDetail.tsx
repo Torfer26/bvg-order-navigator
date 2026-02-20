@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -61,7 +62,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { 
-  fetchOrderById, 
+  fetchOrderDetailData, 
   fetchOrdersLog, 
   fetchOrderLines, 
   approveOrderForFTP,
@@ -75,7 +76,8 @@ import {
   saveCustomerDefaultLoadLocation,
   clearCustomerDefaultLoadLocation,
   cancelOrderLine,
-  type ClientWithDefaultLocation
+  type ClientWithDefaultLocation,
+  type OrderDetailData
 } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import type { OrderIntake, OrderLine, OrderEvent, Location } from '@/types';
@@ -153,17 +155,13 @@ function formatEventDetails(
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const { hasRole, user } = useAuth();
   const { t, language } = useLanguage();
   const dateLocale = language === 'es' ? es : it;
   const [isReprocessing, setIsReprocessing] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [order, setOrder] = useState<OrderIntake | null>(null);
-  const [events, setEvents] = useState<OrderEvent[]>([]);
-  const [lines, setLines] = useState<OrderLine[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   // Location selector modal state
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [selectedLineForLocation, setSelectedLineForLocation] = useState<OrderLine | null>(null);
@@ -171,8 +169,6 @@ export default function OrderDetail() {
   const [showRejectDialog, setShowRejectDialog] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  // Client info with default load location
-  const [clientInfo, setClientInfo] = useState<ClientWithDefaultLocation | null>(null);
   // Assign client modal (inline, no navigation)
   const [assignClientModalOpen, setAssignClientModalOpen] = useState(false);
   const [selectedClientForAssign, setSelectedClientForAssign] = useState('');
@@ -180,8 +176,6 @@ export default function OrderDetail() {
   const [savingAssign, setSavingAssign] = useState(false);
   // Fallback sender when ordenes_intake.sender_address is empty (e.g. from order_events)
   const [senderFallback, setSenderFallback] = useState<{ senderAddress: string; subject: string } | null>(null);
-  // Resumen del email desde AI Triage (email_triage.reason)
-  const [emailSummary, setEmailSummary] = useState<string | null>(null);
   // Edit default load location (cliente) from order
   const [showEditDefaultLocationModal, setShowEditDefaultLocationModal] = useState(false);
   const [editDefaultLocationValue, setEditDefaultLocationValue] = useState<Location | null>(null);
@@ -190,99 +184,42 @@ export default function OrderDetail() {
   const [lineToCancel, setLineToCancel] = useState<OrderLine | null>(null);
   const [isCancellingLine, setIsCancellingLine] = useState(false);
 
-  // Fetch order data from API
-  // Function to load order data (can be called for refresh)
-  const fetchOrderData = async (showLoading = true) => {
-    if (!id) return;
+  const { data: detailData, isLoading, error: queryError, refetch } = useQuery({
+    queryKey: ['orderDetail', id],
+    queryFn: () => fetchOrderDetailData(id!),
+    enabled: !!id,
+  });
 
-    if (showLoading) {
-      setIsLoading(true);
-      setError(null);
-    }
+  const order = detailData?.order ?? null;
+  const clientInfo = detailData?.clientInfo ?? null;
+  const lines = (detailData?.lines ?? []) as OrderLine[];
+  const emailSummary = detailData?.emailSummary ?? null;
+  const error = queryError ? (queryError as Error).message : (id && detailData === null ? 'Order not found' : null);
+  const rawLogs = detailData?.events ?? [];
 
-    try {
-      const foundOrder = await fetchOrderById(id);
-      if (!foundOrder) {
-        setError('Order not found');
-        return;
-      }
+  const events = useMemo(() => {
+    const seen = new Set<string>();
+    return rawLogs
+      .map((log: any) => ({
+        id: log.id,
+        orderCode: order?.orderCode ?? '',
+        eventType: log.step || 'unknown',
+        timestamp: log.createdAt,
+        details: formatEventDetails(log.step, log.info, log.status),
+        actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
+      }))
+      .filter((e: OrderEvent) => {
+        if (seen.has(e.eventType)) return false;
+        seen.add(e.eventType);
+        return true;
+      });
+  }, [rawLogs, order?.orderCode]);
 
-      setOrder(foundOrder);
-      setEmailSummary(null);
-
-      // Fetch client info with default load location
-      if (foundOrder.clientId) {
-        const clientData = await fetchClientWithDefaultLocation(foundOrder.clientId);
-        setClientInfo(clientData);
-      } else {
-        setClientInfo(null);
-      }
-
-      // Fetch order lines from ordenes_intake_lineas
-      const orderLines = await fetchOrderLines(id);
-      const mappedLines: OrderLine[] = orderLines.map((line: any) => ({
-        id: line.id,
-        orderIntakeId: id,
-        lineNumber: line.lineNumber,
-        customer: line.customer,
-        destination: line.destination,
-        destinationId: line.destinationId,
-        destinationAddress: line.destinationAddress,
-        destinationCity: line.destinationCity,
-        destinationProvince: line.destinationProvince,
-        destinationZipCode: line.destinationZipCode,
-        notes: line.notes,
-        pallets: line.pallets,
-        deliveryDate: line.deliveryDate,
-        observations: line.observations,
-        unit: line.unit || 'PLT',
-        locationStatus: line.locationStatus,
-        locationSuggestions: line.locationSuggestions,
-        rawDestinationText: line.rawDestinationText,
-        rawCustomerText: line.rawCustomerText,
-        locationSetBy: line.locationSetBy,
-        locationSetAt: line.locationSetAt,
-        anulada: line.anulada,
-        anuladaAt: line.anuladaAt,
-        anuladaPor: line.anuladaPor,
-      }));
-      setLines(mappedLines);
-
-      // Fetch order logs/events and email summary (reason from AI Triage)
-      if (foundOrder.messageId || foundOrder.conversationId) {
-        const [logs, summary] = await Promise.all([
-          fetchOrdersLog(foundOrder.messageId),
-          fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
-        ]);
-        setEmailSummary(summary ?? null);
-        const mappedEvents: OrderEvent[] = logs.map((log: any) => ({
-          id: log.id,
-          orderCode: foundOrder.orderCode,
-          eventType: log.step || 'unknown',
-          timestamp: log.createdAt,
-          details: formatEventDetails(log.step, log.info, log.status),
-          actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
-        }));
-        const seenSteps = new Set<string>();
-        const uniqueEvents = mappedEvents.filter((event) => {
-          if (seenSteps.has(event.eventType)) return false;
-          seenSteps.add(event.eventType);
-          return true;
-        });
-        setEvents(uniqueEvents);
-      }
-    } catch (err) {
-      console.error('Error loading order:', err);
-      setError('Failed to load order');
-    } finally {
-      if (showLoading) setIsLoading(false);
-    }
+  const invalidateOrderDetail = () => {
+    queryClient.invalidateQueries({ queryKey: ['orderDetail', id] });
+    queryClient.invalidateQueries({ queryKey: ['orders'] });
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
   };
-
-  // Initial fetch
-  useEffect(() => {
-    fetchOrderData(true);
-  }, [id]);
 
   // Fallback: fetch sender from order_events when ordenes_intake.sender_address is empty
   useEffect(() => {
@@ -341,12 +278,11 @@ export default function OrderDetail() {
       if (result.success) {
         toast.success(t.orders?.approveSuccess || 'Pedido autorizado, enviado y completado correctamente');
 
-        // Optimistic UI Update: Change status to COMPLETED (workflow marks it complete after FTP)
-        setOrder(prev => prev ? ({ ...prev, status: 'COMPLETED' }) : null);
-
-        // Background revalidation: Refresh events/logs carefully
-        // Giving a small delay to allow n8n to process at least the first event
-        setTimeout(() => fetchOrderData(false), 2000);
+        // Optimistic UI Update: Change status to COMPLETED
+        queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+          prev ? { ...prev, order: { ...prev.order, status: 'COMPLETED' } } : prev
+        );
+        setTimeout(() => invalidateOrderDetail(), 2000);
 
       } else {
         toast.error(result.message);
@@ -399,7 +335,9 @@ export default function OrderDetail() {
           toast.success(result.message);
           setShowEditDefaultLocationModal(false);
           const updated = await fetchClientWithDefaultLocation(order.clientId);
-          setClientInfo(updated);
+          queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+            prev ? { ...prev, clientInfo: updated } : prev
+          );
         } else {
           toast.error(result.message);
         }
@@ -409,7 +347,9 @@ export default function OrderDetail() {
           toast.success(result.message);
           setShowEditDefaultLocationModal(false);
           const updated = await fetchClientWithDefaultLocation(order.clientId);
-          setClientInfo(updated);
+          queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+            prev ? { ...prev, clientInfo: updated } : prev
+          );
         } else {
           toast.error(result.message);
         }
@@ -429,7 +369,7 @@ export default function OrderDetail() {
       if (result.success) {
         toast.success(result.message);
         setAssignClientModalOpen(false);
-        await fetchOrderData(false);
+        invalidateOrderDetail();
       } else {
         toast.error(result.message);
       }
@@ -449,9 +389,11 @@ export default function OrderDetail() {
       const result = await markOrderCompleted(order.id);
       if (result.success) {
         toast.success('Pedido marcado como completado');
-        setOrder(prev => prev ? ({ ...prev, status: 'COMPLETED' }) : null);
+        queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+          prev ? { ...prev, order: { ...prev.order, status: 'COMPLETED' } } : prev
+        );
         setShowCompleteDialog(false);
-        setTimeout(() => fetchOrderData(false), 1000);
+        setTimeout(invalidateOrderDetail, 1000);
       } else {
         toast.error(result.message);
       }
@@ -474,10 +416,12 @@ export default function OrderDetail() {
       const result = await rejectOrder(order.id, rejectReason);
       if (result.success) {
         toast.success('Pedido rechazado');
-        setOrder(prev => prev ? ({ ...prev, status: 'REJECTED' }) : null);
+        queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+          prev ? { ...prev, order: { ...prev.order, status: 'REJECTED' } } : prev
+        );
         setShowRejectDialog(false);
         setRejectReason('');
-        setTimeout(() => fetchOrderData(false), 1000);
+        setTimeout(invalidateOrderDetail, 1000);
       } else {
         toast.error(result.message);
       }
@@ -497,8 +441,10 @@ export default function OrderDetail() {
       const result = await moveOrderToReview(order.id);
       if (result.success) {
         toast.success('Pedido movido a revisión');
-        setOrder(prev => prev ? ({ ...prev, status: 'IN_REVIEW' }) : null);
-        setTimeout(() => fetchOrderData(false), 1000);
+        queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+          prev ? { ...prev, order: { ...prev.order, status: 'IN_REVIEW' } } : prev
+        );
+        setTimeout(invalidateOrderDetail, 1000);
       } else {
         toast.error(result.message);
       }
@@ -527,16 +473,21 @@ export default function OrderDetail() {
     try {
       const res = await cancelOrderLine(lineToCancel.id, user?.email || 'frontend_user');
       if (res.success) {
-        setLines((prev) =>
-          prev.map((l) =>
-            l.id === lineToCancel.id
-              ? { ...l, anulada: true, anuladaAt: new Date().toISOString(), anuladaPor: user?.email || 'frontend_user' }
-              : l
-          )
+        queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+          prev
+            ? {
+                ...prev,
+                lines: prev.lines.map((l: any) =>
+                  l.id === lineToCancel.id
+                    ? { ...l, anulada: true, anuladaAt: new Date().toISOString(), anuladaPor: user?.email || 'frontend_user' }
+                    : l
+                ),
+              }
+            : prev
         );
         toast.success(res.message);
         setLineToCancel(null);
-        fetchOrderData(false);
+        invalidateOrderDetail();
       } else {
         toast.error(res.message);
       }
@@ -549,17 +500,17 @@ export default function OrderDetail() {
 
   // Handle when location is successfully set
   const handleLocationSet = (lineId: string, location: Location) => {
-    setLines((prevLines) =>
-      prevLines.map((line) =>
-        line.id === lineId
-          ? {
-              ...line,
-              destinationId: location.id,
-              destination: location.name,
-              locationStatus: 'MANUALLY_SET',
-            }
-          : line
-      )
+    queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
+      prev
+        ? {
+            ...prev,
+            lines: prev.lines.map((l: any) =>
+              l.id === lineId
+                ? { ...l, destinationId: location.id, destination: location.name, locationStatus: 'MANUALLY_SET' }
+                : l
+            ),
+          }
+        : prev
     );
   };
 

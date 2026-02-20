@@ -101,6 +101,73 @@ export async function fetchOrderById(intakeId: string): Promise<OrderIntake | nu
   }
 }
 
+export interface OrderDetailData {
+  order: OrderIntake;
+  clientInfo: ClientWithDefaultLocation | null;
+  lines: any[];
+  events: any[];
+  emailSummary: string | null;
+}
+
+/**
+ * Fetch full order detail (order + client + lines + logs) for OrderDetail page.
+ * Used with useQuery for caching and deduplication.
+ */
+export async function fetchOrderDetailData(intakeId: string): Promise<OrderDetailData | null> {
+  const foundOrder = await fetchOrderById(intakeId);
+  if (!foundOrder) return null;
+
+  const [clientInfo, rawLines, logsAndTriage] = await Promise.all([
+    foundOrder.clientId ? fetchClientWithDefaultLocation(foundOrder.clientId) : Promise.resolve(null),
+    fetchOrderLines(intakeId),
+    foundOrder.messageId || foundOrder.conversationId
+      ? Promise.all([
+          fetchOrdersLog(foundOrder.messageId),
+          fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
+        ])
+      : Promise.resolve([[], null] as const),
+  ]);
+
+  const [rawLogs, emailSummary] = logsAndTriage;
+  const mappedLines = rawLines.map((line: any, idx: number) => ({
+    id: line.id,
+    orderIntakeId: intakeId,
+    lineNumber: line.lineNumber ?? idx + 1,
+    customer: line.customer,
+    destination: line.destination,
+    destinationId: line.destinationId,
+    destinationAddress: line.destinationAddress,
+    destinationCity: line.destinationCity,
+    destinationProvince: line.destinationProvince,
+    destinationZipCode: line.destinationZipCode,
+    notes: line.notes,
+    pallets: line.pallets,
+    deliveryDate: line.deliveryDate,
+    observations: line.observations,
+    unit: line.unit || 'PLT',
+    locationStatus: line.locationStatus,
+    locationSuggestions: line.locationSuggestions,
+    rawDestinationText: line.rawDestinationText,
+    rawCustomerText: line.rawCustomerText,
+    locationSetBy: line.locationSetBy,
+    locationSetAt: line.locationSetAt,
+    anulada: line.anulada,
+    anuladaAt: line.anuladaAt,
+    anuladaPor: line.anuladaPor,
+    loadPoint: line.loadPoint,
+    loadPointId: line.loadPointId,
+    loadPointAddress: line.loadPointAddress,
+  }));
+
+  return {
+    order: foundOrder,
+    clientInfo,
+    lines: mappedLines,
+    events: rawLogs as any[],
+    emailSummary: emailSummary ?? null,
+  };
+}
+
 /**
  * Fetch a map of intake_id -> lines_count from materialized view
  */
