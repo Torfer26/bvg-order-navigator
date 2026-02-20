@@ -729,8 +729,24 @@ export default function Analytics() {
     clientId: undefined,
     regionId: undefined,
   });
-  
-  // Stable date range key for query cache
+
+  // Calculate date range based on preset (must be before dateRangeKey and useQueries)
+  const dateRange = useMemo<DateRange>(() => {
+    const now = new Date();
+    switch (filters.periodPreset) {
+      case '7d':
+        return { from: startOfDay(subDays(now, 7)), to: endOfDay(now) };
+      case '30d':
+        return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
+      case '90d':
+        return { from: startOfDay(subDays(now, 90)), to: endOfDay(now) };
+      case 'custom':
+        return { from: startOfDay(filters.customRange.from), to: endOfDay(filters.customRange.to) };
+      default:
+        return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
+    }
+  }, [filters.periodPreset, filters.customRange.from, filters.customRange.to]);
+
   const dateRangeKey = useMemo(
     () => `${dateRange.from.toISOString().slice(0, 10)}_${dateRange.to.toISOString().slice(0, 10)}`,
     [dateRange.from, dateRange.to]
@@ -841,24 +857,6 @@ export default function Analytics() {
     : new Date();
 
   const refetchAll = () => results.forEach((r) => r.refetch());
-  
-  // Calculate date range based on preset - simple calculation, no state updates
-  const dateRange = useMemo<DateRange>(() => {
-    const now = new Date();
-    switch (filters.periodPreset) {
-      case '7d':
-        return { from: startOfDay(subDays(now, 7)), to: endOfDay(now) };
-      case '30d':
-        return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
-      case '90d':
-        return { from: startOfDay(subDays(now, 90)), to: endOfDay(now) };
-      case 'custom':
-        return { from: startOfDay(filters.customRange.from), to: endOfDay(filters.customRange.to) };
-      default:
-        return { from: startOfDay(subDays(now, 30)), to: endOfDay(now) };
-    }
-  }, [filters.periodPreset, filters.customRange.from, filters.customRange.to]);
-  
 
   // Handle filter changes
   const handleFiltersChange = (newFilters: Partial<AnalyticsFilters>) => {
