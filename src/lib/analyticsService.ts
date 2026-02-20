@@ -3,25 +3,7 @@
  * Provides data fetching functions for the Analytics dashboard
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-
-// Default headers for PostgREST to use bvg schema
-const DEFAULT_HEADERS = {
-  'Content-Type': 'application/json',
-  'Accept-Profile': 'bvg',
-  'Content-Profile': 'bvg',
-};
-
-// Helper for authenticated fetch
-async function bvgFetch(url: string, options: RequestInit = {}) {
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...DEFAULT_HEADERS,
-      ...options.headers,
-    },
-  });
-}
+import { API_BASE_URL, bvgFetch } from './api';
 
 // ========== TYPES ==========
 
@@ -404,21 +386,32 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
  * Fetch region statistics
  */
 export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStats[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+
   try {
-    // Fetch lines with destination info
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id&destination_id=not.is.null`
+    // Orders in date range (for filtering lines)
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
     );
-    const lines = await linesResponse.json();
-    
+    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
+    const orderIds = new Set(orders.map((o: any) => String(o.id)));
+
+    // Fetch lines with destination info (include intake_id for date filter)
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id&destination_id=not.is.null`
+    );
+    const allLines = linesResponse.ok ? await linesResponse.json() : [];
+    const lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
+
     // Fetch locations
     const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,region`);
-    const locations = await locationsResponse.json();
+    const locations = locationsResponse.ok ? await locationsResponse.json() : [];
     const locationRegion = new Map(locations.map((l: any) => [String(l.id), l.region]));
-    
+
     // Aggregate by region
     const regionStats = new Map<string, RegionStats>();
-    
+
     lines.forEach((line: any) => {
       const region = locationRegion.get(String(line.destination_id)) || 'Sin región';
       
@@ -449,12 +442,23 @@ export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStat
  * Fetch top destinations
  */
 export async function fetchTopDestinations(dateRange: DateRange, limit: number = 10): Promise<DestinationStats[]> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+
   try {
-    // Fetch lines with destination
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id&destination_id=not.is.null`
+    // Orders in date range (for filtering lines)
+    const ordersResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake?select=id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
     );
-    const lines = await linesResponse.json();
+    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
+    const orderIds = new Set(orders.map((o: any) => String(o.id)));
+
+    // Fetch lines with destination (include intake_id for date filter)
+    const linesResponse = await bvgFetch(
+      `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id&destination_id=not.is.null`
+    );
+    const allLines = linesResponse.ok ? await linesResponse.json() : [];
+    const lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
     
     // Fetch locations
     const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description,location,region`);

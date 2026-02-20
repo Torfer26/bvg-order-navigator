@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { 
   BarChart3, 
   Package, 
@@ -729,23 +730,117 @@ export default function Analytics() {
     regionId: undefined,
   });
   
-  // Loading and error state
-  const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  
-  // Data states - Business Analytics focused
-  const [kpis, setKpis] = useState<AnalyticsKPIs | null>(null);
-  const [dailyTrend, setDailyTrend] = useState<DailyTrend[]>([]);
-  const [statusDist, setStatusDist] = useState<StatusDistribution[]>([]);
-  const [clientStats, setClientStats] = useState<ClientStats[]>([]);
-  const [regionStats, setRegionStats] = useState<RegionStats[]>([]);
-  const [comparison, setComparison] = useState<PeriodComparison | null>(null);
-  const [hourlyPattern, setHourlyPattern] = useState<HourlyPattern[]>([]);
-  const [weekdayPattern, setWeekdayPattern] = useState<WeekdayPattern[]>([]);
-  const [topDestinations, setTopDestinations] = useState<DestinationStats[]>([]);
-  const [filterClients, setFilterClients] = useState<FilterOption[]>([]);
-  const [filterRegions, setFilterRegions] = useState<FilterOption[]>([]);
+  // Stable date range key for query cache
+  const dateRangeKey = useMemo(
+    () => `${dateRange.from.toISOString().slice(0, 10)}_${dateRange.to.toISOString().slice(0, 10)}`,
+    [dateRange.from, dateRange.to]
+  );
+
+  // Filter options (load once)
+  const { data: filterOptions } = useQuery({
+    queryKey: ['analytics', 'filterOptions'],
+    queryFn: async () => {
+      const [clients, regions] = await Promise.all([
+        fetchClientsForFilter(),
+        fetchRegionsForFilter(),
+      ]);
+      return { clients, regions };
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const filterClients = filterOptions?.clients ?? [];
+  const filterRegions = filterOptions?.regions ?? [];
+
+  // Analytics data with useQueries (cached by dateRange)
+  const defaultKPIs: AnalyticsKPIs = {
+    totalOrders: 0,
+    totalPallets: 0,
+    totalDeliveries: 0,
+    uniqueRegions: 0,
+    pendingLocations: 0,
+    avgOrdersPerDay: 0,
+  };
+
+  const results = useQueries({
+    queries: [
+      {
+        queryKey: ['analytics', 'kpis', dateRangeKey],
+        queryFn: () => fetchAnalyticsKPIs(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'dailyTrend', dateRangeKey],
+        queryFn: () => fetchDailyTrend(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'statusDist', dateRangeKey],
+        queryFn: () => fetchStatusDistribution(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'clientStats', dateRangeKey],
+        queryFn: () => fetchClientStats(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'regionStats', dateRangeKey],
+        queryFn: () => fetchRegionStats(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'comparison', dateRangeKey],
+        queryFn: () => fetchPeriodComparison(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'hourlyPattern', dateRangeKey],
+        queryFn: () => fetchHourlyPattern(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'weekdayPattern', dateRangeKey],
+        queryFn: () => fetchWeekdayPattern(dateRange),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'topDestinations', dateRangeKey],
+        queryFn: () => fetchTopDestinations(dateRange, 10),
+        staleTime: 30 * 1000,
+      },
+    ],
+  });
+
+  const [
+    kpisQuery,
+    dailyTrendQuery,
+    statusDistQuery,
+    clientStatsQuery,
+    regionStatsQuery,
+    comparisonQuery,
+    hourlyPatternQuery,
+    weekdayPatternQuery,
+    topDestinationsQuery,
+  ] = results;
+
+  const kpis = kpisQuery.data ?? defaultKPIs;
+  const dailyTrend = dailyTrendQuery.data ?? [];
+  const statusDist = statusDistQuery.data ?? [];
+  const clientStats = clientStatsQuery.data ?? [];
+  const regionStats = regionStatsQuery.data ?? [];
+  const comparison = comparisonQuery.data ?? null;
+  const hourlyPattern = hourlyPatternQuery.data ?? [];
+  const weekdayPattern = weekdayPatternQuery.data ?? [];
+  const topDestinations = topDestinationsQuery.data ?? [];
+
+  const isLoading = results.some((r) => r.isLoading);
+  const isFetching = results.some((r) => r.isFetching);
+  const hasError = results.every((r) => r.isError);
+  const lastUpdated = results.some((r) => r.dataUpdatedAt)
+    ? new Date(Math.max(...results.map((r) => r.dataUpdatedAt)))
+    : new Date();
+
+  const refetchAll = () => results.forEach((r) => r.refetch());
   
   // Calculate date range based on preset - simple calculation, no state updates
   const dateRange = useMemo<DateRange>(() => {
@@ -764,102 +859,6 @@ export default function Analytics() {
     }
   }, [filters.periodPreset, filters.customRange.from, filters.customRange.to]);
   
-  // NOTE: Removed the useEffect that was causing infinite loop by updating filters when dateRange changes
-
-  // Load filter options once
-  useEffect(() => {
-    async function loadFilterOptions() {
-      const [clients, regions] = await Promise.all([
-        fetchClientsForFilter(),
-        fetchRegionsForFilter(),
-      ]);
-      setFilterClients(clients);
-      setFilterRegions(regions);
-    }
-    loadFilterOptions();
-  }, []);
-  
-  // Fetch data - Business Analytics focused (no operational data)
-  const loadData = useCallback(async () => {
-    console.log('[Analytics] loadData called with dateRange:', dateRange);
-    setIsLoading(true);
-    setHasError(false);
-    
-    const defaultKPIs: AnalyticsKPIs = {
-      totalOrders: 0,
-      totalPallets: 0,
-      totalDeliveries: 0,
-      uniqueRegions: 0,
-      pendingLocations: 0,
-      avgOrdersPerDay: 0,
-    };
-    
-    try {
-      // Business analytics data only - no operational queues
-      console.log('[Analytics] Fetching business analytics data...');
-      const results = await Promise.allSettled([
-        fetchAnalyticsKPIs(dateRange),
-        fetchDailyTrend(dateRange),
-        fetchStatusDistribution(dateRange),
-        fetchClientStats(dateRange),
-        fetchRegionStats(dateRange),
-        fetchPeriodComparison(dateRange),
-        fetchHourlyPattern(dateRange),
-        fetchWeekdayPattern(dateRange),
-        fetchTopDestinations(dateRange, 10),
-      ]);
-      
-      console.log('[Analytics] Results:', results.map((r, i) => ({ i, status: r.status })));
-      
-      // Extract values, using defaults for failed requests
-      const getValue = <T,>(result: PromiseSettledResult<T>, defaultValue: T): T => {
-        if (result.status === 'fulfilled') return result.value;
-        console.warn('[Analytics] Request failed:', result.reason);
-        return defaultValue;
-      };
-      
-      const kpisData = getValue(results[0] as PromiseSettledResult<AnalyticsKPIs>, defaultKPIs);
-      console.log('[Analytics] KPIs:', kpisData);
-      
-      setKpis(kpisData);
-      setDailyTrend(getValue(results[1] as PromiseSettledResult<DailyTrend[]>, []));
-      setStatusDist(getValue(results[2] as PromiseSettledResult<StatusDistribution[]>, []));
-      setClientStats(getValue(results[3] as PromiseSettledResult<ClientStats[]>, []));
-      setRegionStats(getValue(results[4] as PromiseSettledResult<RegionStats[]>, []));
-      setComparison(getValue(results[5] as PromiseSettledResult<PeriodComparison>, null as any));
-      setHourlyPattern(getValue(results[6] as PromiseSettledResult<HourlyPattern[]>, []));
-      setWeekdayPattern(getValue(results[7] as PromiseSettledResult<WeekdayPattern[]>, []));
-      setTopDestinations(getValue(results[8] as PromiseSettledResult<DestinationStats[]>, []));
-      setLastUpdated(new Date());
-      
-      // Check if ALL requests failed
-      const allFailed = results.every(r => r.status === 'rejected');
-      if (allFailed) {
-        console.error('[Analytics] All requests failed!');
-        setHasError(true);
-      }
-      
-      console.log('[Analytics] Data loaded successfully, setting isLoading=false');
-    } catch (error) {
-      console.error('[Analytics] Error loading analytics:', error);
-      setHasError(true);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [dateRange]);
-  
-  // Load data when dateRange changes - use a ref to prevent multiple calls
-  const lastDateRangeRef = React.useRef<string>('');
-  
-  useEffect(() => {
-    const rangeKey = `${dateRange.from.toISOString()}-${dateRange.to.toISOString()}`;
-    // Only load if dateRange actually changed
-    if (lastDateRangeRef.current !== rangeKey) {
-      lastDateRangeRef.current = rangeKey;
-      console.log('[Analytics] dateRange changed, calling loadData');
-      loadData();
-    }
-  }, [dateRange, loadData]);
 
   // Handle filter changes
   const handleFiltersChange = (newFilters: Partial<AnalyticsFilters>) => {
@@ -885,8 +884,7 @@ export default function Analytics() {
   const sparklineData = dailyTrend.map(d => d.orders);
   const palletsSparkline = dailyTrend.map(d => d.pallets);
   
-  // Check if we have data - kpis being non-null is enough to show the UI
-  const hasData = kpis !== null;
+  const hasData = !hasError && results.some((r) => r.isSuccess);
   
   return (
     <div className="space-y-6 pb-8">
@@ -919,15 +917,15 @@ export default function Analytics() {
         filters={filters}
         onFiltersChange={handleFiltersChange}
         lastUpdated={lastUpdated}
-        isLoading={isLoading}
-        onRefresh={loadData}
+        isLoading={isLoading || isFetching}
+        onRefresh={refetchAll}
         clients={filterClients}
         regions={filterRegions}
         showAdvancedFilters={false}
       />
       
       {/* Error state */}
-      {hasError && <AnalyticsErrorState onRetry={loadData} />}
+      {hasError && <AnalyticsErrorState onRetry={refetchAll} />}
       
       {/* Loading state */}
       {isLoading && !hasError && (
