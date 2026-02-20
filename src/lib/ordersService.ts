@@ -236,37 +236,64 @@ export interface ClientWithDefaultLocation {
 
 export async function fetchClientWithDefaultLocation(clientId: string): Promise<ClientWithDefaultLocation | null> {
   try {
-    // Pad client ID to match database format (e.g., 6 -> 00006)
     const paddedId = clientId.padStart(5, '0');
 
-    // Fetch client info
+    // Prefer RPC (1 request) if migration 029 is applied
+    try {
+      const rpcResponse = await bvgFetch(`${API_BASE_URL}/rpc/fn_get_client_with_default_location`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_customer_id: paddedId }),
+      });
+      if (rpcResponse.ok) {
+        const data = await rpcResponse.json();
+        // PostgREST returns the scalar value directly for RETURNS jsonb
+        if (data && typeof data === 'object' && data.id) {
+          return {
+            id: data.id,
+            name: data.name ?? `Cliente ${data.id}`,
+            address: data.address,
+            city: data.city,
+            region: data.region,
+            defaultLoadLocation: data.defaultLoadLocation
+              ? {
+                  id: String(data.defaultLoadLocation.id),
+                  name: data.defaultLoadLocation.name ?? 'Sin nombre',
+                  address: data.defaultLoadLocation.address ?? '',
+                  city: data.defaultLoadLocation.city ?? '',
+                  region: data.defaultLoadLocation.region ?? '',
+                  zipCode: data.defaultLoadLocation.zipCode ?? '',
+                }
+              : undefined,
+          };
+        }
+        if (data === null) return null;
+      }
+    } catch {
+      // RPC not available, fallback to 3-request approach
+    }
+
+    // Fallback: 3 requests (customer_stg → customer_default_location → customer_location_stg)
     const clientResponse = await bvgFetch(
       `${API_BASE_URL}/customer_stg?id=eq.${paddedId}&select=id,description,address,location,region`
     );
-
     if (!clientResponse.ok) return null;
     const clients = await clientResponse.json();
     if (clients.length === 0) return null;
-
     const client = clients[0];
 
-    // Fetch default location
     const defaultLocResponse = await bvgFetch(
       `${API_BASE_URL}/customer_default_location?customer_id=eq.${paddedId}&select=location_id`
     );
-
-    let defaultLoadLocation = undefined;
+    let defaultLoadLocation: ClientWithDefaultLocation['defaultLoadLocation'] = undefined;
 
     if (defaultLocResponse.ok) {
       const defaultLocs = await defaultLocResponse.json();
       if (defaultLocs.length > 0) {
         const locationId = defaultLocs[0].location_id;
-        
-        // Fetch location details
         const locResponse = await bvgFetch(
           `${API_BASE_URL}/customer_location_stg?id=eq.${locationId}&select=id,description,address,zip_code,location,region`
         );
-        
         if (locResponse.ok) {
           const locations = await locResponse.json();
           if (locations.length > 0) {
@@ -283,7 +310,7 @@ export async function fetchClientWithDefaultLocation(clientId: string): Promise<
         }
       }
     }
-    
+
     return {
       id: client.id,
       name: client.description || `Cliente ${client.id}`,
