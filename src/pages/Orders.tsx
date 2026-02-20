@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, X } from 'lucide-react';
 import { DataTable, type Column } from '@/components/shared/DataTable';
@@ -27,33 +28,23 @@ export default function Orders() {
 
   const [filters, setFilters] = useState<OrderFilters>({});
   const [page, setPage] = useState(1);
-  const [orders, setOrders] = useState<OrderIntake[]>([]);
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const { data: ordersData = [], isLoading: ordersLoading } = useQuery({
+    queryKey: ['orders'],
+    queryFn: fetchOrders,
+  });
+  const { data: clientsData = [], isLoading: clientsLoading } = useQuery({
+    queryKey: ['clients'],
+    queryFn: fetchClients,
+  });
+  const orders = ordersData;
+  const clients = clientsData;
+  const loading = ordersLoading || clientsLoading;
 
   // Clear URL filter
   const clearUrlFilter = () => {
     setSearchParams({});
   };
-
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        const [ordersData, clientsData] = await Promise.all([
-          fetchOrders(),
-          fetchClients(),
-        ]);
-        setOrders(ordersData);
-        setClients(clientsData);
-      } catch (error) {
-        console.error('Error loading orders:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
 
   // Calculate counts for tabs
   const statusCounts = useMemo(() => {

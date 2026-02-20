@@ -26,7 +26,14 @@ import LogsAndTraceability from "@/pages/LogsAndTraceability";
 import ExtractionEvaluation from "@/pages/ExtractionEvaluation";
 import NotFound from "@/pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30 * 1000, // 30s - reduce refetches on quick navigation
+      retry: 1,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

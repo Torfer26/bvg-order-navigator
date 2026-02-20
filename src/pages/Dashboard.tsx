@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   FileText,
@@ -32,67 +33,41 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const dateLocale = language === 'es' ? es : it;
 
-  const [kpis, setKpis] = useState<DashboardKPIs>({ 
-    ordersToday: 0, 
-    ordersYesterday: 0,
-    ordersWeek: 0, 
-    errorRate: 0, 
-    pendingDLQ: 0, 
-    avgProcessingTime: 0, 
-    avgProcessingTimeYesterday: 0,
-    successRate: 100,
-    pendingLocations: 0,
-    ordersInValidation: 0,
-    ordersProcessing: 0,
-    ordersReceived: 0,
-    ordersRejected: 0,
-    ordersCompleted: 0,
-  });
-  const [recentOrders, setRecentOrders] = useState<OrderIntake[]>([]);
-  const [pendingDLQ, setPendingDLQ] = useState<DLQOrder[]>([]);
-  const [systemHealth, setSystemHealth] = useState<{
-    overall: 'healthy' | 'degraded' | 'down' | 'unknown';
-    services: {
-      n8n: { status: string; message: string; responseTime?: number };
-      database: { status: string; message: string; responseTime?: number };
-    };
-    lastCheck: string;
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
-  const [triageStats, setTriageStats] = useState<{ totalToday: number; orderEmailsToday: number; percentOrdersToday: number } | null>(null);
 
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      try {
-        await refreshDashboard(false);
-      } catch (error) {
-        console.error('Error loading dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
-  }, []);
+  const { data: dashboardData, isLoading: loading } = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: fetchDashboardKPIs,
+  });
+  const { data: healthStatus } = useQuery({
+    queryKey: ['systemHealth'],
+    queryFn: getSystemHealthStatus,
+  });
+  const { data: triageData } = useQuery({
+    queryKey: ['emailTriageStats'],
+    queryFn: fetchEmailTriageStats,
+  });
+
+  const kpis = dashboardData?.kpis ?? {
+    ordersToday: 0, ordersYesterday: 0, ordersWeek: 0, errorRate: 0, pendingDLQ: 0,
+    avgProcessingTime: 0, avgProcessingTimeYesterday: 0, successRate: 100, pendingLocations: 0,
+    ordersInValidation: 0, ordersProcessing: 0, ordersReceived: 0, ordersRejected: 0, ordersCompleted: 0,
+  };
+  const recentOrders = dashboardData?.recentOrders ?? [];
+  const pendingDLQ = dashboardData?.pendingDLQ ?? [];
+  const systemHealth = healthStatus ?? null;
+  const triageStats = triageData ?? null;
 
   const refreshDashboard = async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    try {
-      const [dashboardData, healthStatus, triageData] = await Promise.all([
-        fetchDashboardKPIs(),
-        getSystemHealthStatus(),
-        fetchEmailTriageStats(),
-      ]);
-      setKpis(dashboardData.kpis);
-      setRecentOrders(dashboardData.recentOrders);
-      setPendingDLQ(dashboardData.pendingDLQ);
-      setSystemHealth(healthStatus);
-      setTriageStats(triageData);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      if (showLoading) setLoading(false);
+    if (showLoading) {
+      await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      await queryClient.invalidateQueries({ queryKey: ['systemHealth'] });
+      await queryClient.invalidateQueries({ queryKey: ['emailTriageStats'] });
+    } else {
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['systemHealth'] });
+      queryClient.invalidateQueries({ queryKey: ['emailTriageStats'] });
     }
   };
 
