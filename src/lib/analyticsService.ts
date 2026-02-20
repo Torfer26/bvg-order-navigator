@@ -121,14 +121,11 @@ export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<Analytic
   const fromDate = formatDateForQuery(dateRange.from);
   const toDate = formatDateForQuery(dateRange.to);
   
-  console.log('[analyticsService] fetchAnalyticsKPIs called', { fromDate, toDate });
   
   try {
     // Fetch orders in date range
     const ordersUrl = `${API_BASE_URL}/ordenes_intake?select=id,status,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`;
-    console.log('[analyticsService] Fetching orders:', ordersUrl);
     const ordersResponse = await bvgFetch(ordersUrl);
-    console.log('[analyticsService] Orders response status:', ordersResponse.status);
     
     if (!ordersResponse.ok) {
       console.error('[analyticsService] Orders fetch failed:', ordersResponse.status);
@@ -136,7 +133,6 @@ export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<Analytic
     }
     
     const orders = await ordersResponse.json();
-    console.log('[analyticsService] Orders fetched:', orders.length);
     
     // Get order IDs for filtering lines
     const orderIds = orders.map((o: any) => o.id);
@@ -337,7 +333,7 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
     const orders = await ordersResponse.json();
     
     // Fetch clients from customer_stg (id is TEXT with 5-digit padding like "00006")
-    const clientsResponse = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description`);
+    const clientsResponse = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description&limit=3000`);
     const clients = clientsResponse.ok ? await clientsResponse.json() : [];
     
     // Build client map using the standard padded format (e.g. "00006")
@@ -350,7 +346,6 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
       }
     });
     
-    console.log('Client map loaded:', clientMap.size, 'clients');
     
     // Fetch lines
     const linesResponse = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?select=intake_id,pallets,destination_id`);
@@ -660,7 +655,7 @@ export async function fetchPendingLocationLinesForAnalytics(limit: number = 20):
     
     if (clientIds.length > 0) {
       const clientsResponse = await bvgFetch(
-        `${API_BASE_URL}/customer_stg?select=id,description`
+        `${API_BASE_URL}/customer_stg?select=id,description&limit=3000`
       );
       if (clientsResponse.ok) {
         const clients = await clientsResponse.json();

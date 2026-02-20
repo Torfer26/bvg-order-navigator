@@ -273,7 +273,6 @@ export default function OrderDetail() {
       // Pass current user email for audit trail
       // Fallback to name or a readable identifier if email not available
       const approvedBy = user?.email || user?.name || 'Usuario no identificado';
-      console.log('[OrderDetail] Approving order - user context:', { user, approvedBy });
       const result = await approveOrderForFTP(order.id, approvedBy);
       if (result.success) {
         toast.success(t.orders?.approveSuccess || 'Pedido autorizado, enviado y completado correctamente');

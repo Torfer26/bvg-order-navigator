@@ -699,7 +699,7 @@ export async function searchClients(query: string, limit: number = 15): Promise<
  */
 export async function fetchClients() {
   try {
-    const response = await bvgFetch(`${API_BASE_URL}/customer_stg?order=description.asc`);
+    const response = await bvgFetch(`${API_BASE_URL}/customer_stg?order=description.asc&limit=3000`);
     if (!response.ok) throw new Error('Failed to fetch clients');
 
     const data = await response.json();
@@ -766,7 +766,7 @@ export async function fetchCustomerEmailsWithClients(): Promise<CustomerEmailWit
   try {
     const [emailsRes, clientsRes] = await Promise.all([
       bvgFetch(`${API_BASE_URL}/customer_emails?order=customer_id.asc&select=id,customer_id,email,email_type,active,created_at`),
-      bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description`),
+      bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description&limit=3000`),
     ]);
     if (!emailsRes.ok) throw new Error('Failed to fetch customer emails');
     if (!clientsRes.ok) throw new Error('Failed to fetch clients');
