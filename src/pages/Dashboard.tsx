@@ -21,7 +21,7 @@ import { KPICard } from '@/components/shared/KPICard';
 import { OrderStatusBadge, StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { fetchDashboardKPIs, approveOrderForFTP, getSystemHealthStatus, fetchEmailTriageStats } from '@/lib/ordersService';
+import { fetchDashboardKPIs, approveOrderForFTP, getSystemHealthStatus, fetchEmailTriageStats, type DashboardData } from '@/lib/ordersService';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { formatDistanceToNow } from 'date-fns';
 import { es, it } from 'date-fns/locale';
@@ -84,10 +84,12 @@ export default function Dashboard() {
       if (result.success) {
         toast.success(`Pedido ${order.orderCode} aprobado y enviado`);
 
-        // Optimistic UI Update within Dashboard
-        setRecentOrders(prev => prev.map(o =>
-          o.id === order.id ? { ...o, status: 'PROCESSING' } : o
-        ));
+        // Optimistic UI Update within Dashboard (query cache)
+        queryClient.setQueryData<DashboardData>(['dashboard'], (prev) =>
+          prev
+            ? { ...prev, recentOrders: prev.recentOrders.map((o) => (o.id === order.id ? { ...o, status: 'PROCESSING' } : o)) }
+            : prev
+        );
 
         // Background refresh to sync everything
         setTimeout(() => refreshDashboard(false), 2000);
