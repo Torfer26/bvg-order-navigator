@@ -1206,6 +1206,8 @@ export default function Analytics() {
               title="Líneas sin Origen"
               value={kpis?.linesWithoutOrigin ?? 0}
               definition={KPI_DEFINITIONS.linesWithoutOrigin}
+              drilldownUrl="/orders?location_status=PENDING_LOCATION"
+              drilldownLabel="Ver pendientes"
               icon={AlertOctagon}
               accentColor="#ef4444"
               iconBg="bg-gradient-to-br from-red-500 to-rose-600"
