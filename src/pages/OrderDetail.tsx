@@ -563,6 +563,7 @@ export default function OrderDetail() {
       header: t.orders?.deliveryAddress || 'Dirección de Entrega', 
       cell: (row) => {
         const isPending = !row.anulada && needsLocationSelection(row);
+        const isClickable = !row.anulada;
         
         // Build full address string
         const buildFullAddress = () => {
@@ -580,8 +581,8 @@ export default function OrderDetail() {
         
         return (
           <div 
-            className={`${isPending ? 'cursor-pointer' : ''}`}
-            onClick={isPending ? () => handleOpenLocationModal(row) : undefined}
+            className={cn(isClickable && 'cursor-pointer hover:bg-muted/50 rounded px-1 -mx-1')}
+            onClick={isClickable ? () => handleOpenLocationModal(row) : undefined}
           >
             {isPending ? (
               <div className="flex items-center gap-2">
