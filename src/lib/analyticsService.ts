@@ -12,12 +12,20 @@ export interface DateRange {
   to: Date;
 }
 
+export interface AnalyticsQueryFilters {
+  clientId?: string;
+  regionId?: string;       // región destino (entregas)
+  originRegionId?: string; // región origen (carga)
+}
+
 export interface AnalyticsKPIs {
   totalOrders: number;
   totalPallets: number;
   totalDeliveries: number;
   uniqueRegions: number;
+  uniqueOrigins: number;
   pendingLocations: number;
+  linesWithoutOrigin: number;
   avgOrdersPerDay: number;
 }
 
@@ -50,6 +58,31 @@ export interface DestinationStats {
   city: string;
   province: string;
   deliveries: number;
+  pallets: number;
+}
+
+export interface OriginStats {
+  originId: number;
+  originName: string;
+  city: string;
+  province: string;
+  pickups: number;
+  pallets: number;
+}
+
+export interface OriginRegionStats {
+  region: string;
+  pickups: number;
+  pallets: number;
+  uniqueOrigins: number;
+}
+
+export interface OriginDestinationPair {
+  originId: number;
+  originName: string;
+  destinationId: number;
+  destinationName: string;
+  count: number;
   pallets: number;
 }
 
@@ -94,50 +127,71 @@ function getDayName(dayOfWeek: number): string {
   return days[dayOfWeek] || '';
 }
 
+/** Helper: fetch and filter orders + lines by date range and filters */
+async function getFilteredOrdersAndLines(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<{ orders: any[]; orderIds: Set<string>; lines: any[] }> {
+  const fromDate = formatDateForQuery(dateRange.from);
+  const toDate = formatDateForQuery(dateRange.to);
+
+  let ordersUrl = `${API_BASE_URL}/ordenes_intake?select=id,created_at,status,client_id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`;
+  if (filters?.clientId) {
+    const clientNum = parseInt(filters.clientId, 10);
+    if (!isNaN(clientNum)) ordersUrl += `&client_id=eq.${clientNum}`;
+  }
+  const ordersRes = await bvgFetch(ordersUrl);
+  const orders = ordersRes.ok ? await ordersRes.json() : [];
+  let orderIds = new Set(orders.map((o: any) => String(o.id)));
+
+  const linesRes = await bvgFetch(
+    `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id,origin_id,location_status`
+  );
+  const allLines = linesRes.ok ? await linesRes.json() : [];
+  let lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
+
+  if (filters?.regionId || filters?.originRegionId) {
+    const locRes = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,region`);
+    const locations = locRes.ok ? await locRes.json() : [];
+    const locRegion = new Map(locations.map((l: any) => [String(l.id), l.region]));
+
+    lines = lines.filter((l: any) => {
+      if (filters.regionId) {
+        if (!l.destination_id) return false;
+        if (locRegion.get(String(l.destination_id)) !== filters.regionId) return false;
+      }
+      if (filters.originRegionId) {
+        if (!l.origin_id) return false;
+        if (locRegion.get(String(l.origin_id)) !== filters.originRegionId) return false;
+      }
+      return true;
+    });
+    orderIds = new Set(lines.map((l: any) => String(l.intake_id)));
+  }
+
+  const filteredOrders = orders.filter((o: any) => orderIds.has(String(o.id)));
+  return { orders: filteredOrders, orderIds, lines };
+}
+
 // ========== API FUNCTIONS ==========
 
 /**
  * Fetch main KPIs for the analytics dashboard
  */
-export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<AnalyticsKPIs> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
-  
+export async function fetchAnalyticsKPIs(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<AnalyticsKPIs> {
   try {
-    // Fetch orders in date range
-    const ordersUrl = `${API_BASE_URL}/ordenes_intake?select=id,status,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`;
-    const ordersResponse = await bvgFetch(ordersUrl);
-    
-    if (!ordersResponse.ok) {
-      console.error('[analyticsService] Orders fetch failed:', ordersResponse.status);
-      throw new Error('Failed to fetch orders');
-    }
-    
-    const orders = await ordersResponse.json();
-    
-    // Get order IDs for filtering lines
-    const orderIds = orders.map((o: any) => o.id);
-    
-    // Fetch all lines (simpler query, filter in JS)
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,destination_id,location_status,intake_id`
-    );
-    
-    let allLines = [];
-    if (linesResponse.ok) {
-      allLines = await linesResponse.json();
-    }
-    
-    // Filter lines by order IDs
-    const lines = allLines.filter((l: any) => orderIds.includes(l.intake_id));
-    
-    // Calculate KPIs
-    const totalOrders = orders.length;
+    const { orderIds, lines } = await getFilteredOrdersAndLines(dateRange, filters);
+
+    const totalOrders = orderIds.size;
     const totalPallets = lines.reduce((sum: number, l: any) => sum + (Number(l.pallets) || 0), 0);
     const totalDeliveries = lines.filter((l: any) => l.destination_id).length;
     const uniqueRegions = new Set(lines.filter((l: any) => l.destination_id).map((l: any) => l.destination_id)).size;
+    const uniqueOrigins = new Set(lines.filter((l: any) => l.origin_id).map((l: any) => l.origin_id)).size;
     const pendingLocations = lines.filter((l: any) => l.location_status === 'PENDING_LOCATION').length;
+    const linesWithoutOrigin = lines.filter((l: any) => !l.origin_id).length;
     
     // Calculate days in range
     const daysDiff = Math.max(1, Math.ceil((dateRange.to.getTime() - dateRange.from.getTime()) / (1000 * 60 * 60 * 24)));
@@ -148,17 +202,20 @@ export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<Analytic
       totalPallets: Math.round(totalPallets),
       totalDeliveries,
       uniqueRegions,
+      uniqueOrigins,
       pendingLocations,
+      linesWithoutOrigin,
       avgOrdersPerDay,
     };
   } catch (error) {
-    console.error('Error fetching analytics KPIs:', error);
     return {
       totalOrders: 0,
       totalPallets: 0,
       totalDeliveries: 0,
       uniqueRegions: 0,
+      uniqueOrigins: 0,
       pendingLocations: 0,
+      linesWithoutOrigin: 0,
       avgOrdersPerDay: 0,
     };
   }
@@ -167,36 +224,17 @@ export async function fetchAnalyticsKPIs(dateRange: DateRange): Promise<Analytic
 /**
  * Fetch daily trend data for line chart
  */
-export async function fetchDailyTrend(dateRange: DateRange): Promise<DailyTrend[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
+export async function fetchDailyTrend(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<DailyTrend[]> {
   try {
-    // Fetch all orders in range
-    const ordersResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=id,created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    
-    if (!ordersResponse.ok) {
-      throw new Error('Failed to fetch orders');
-    }
-    
-    const orders = await ordersResponse.json();
-    const orderIds = orders.map((o: any) => o.id);
-    
-    // Fetch all lines
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,pallets,intake_id`
-    );
-    const allLines = linesResponse.ok ? await linesResponse.json() : [];
-    
-    // Create a map of intake_id -> lines
+    const { orders, lines } = await getFilteredOrdersAndLines(dateRange, filters);
+
     const linesByIntake = new Map<string, any[]>();
-    allLines.forEach((line: any) => {
+    lines.forEach((line: any) => {
       const intakeId = String(line.intake_id);
-      if (!linesByIntake.has(intakeId)) {
-        linesByIntake.set(intakeId, []);
-      }
+      if (!linesByIntake.has(intakeId)) linesByIntake.set(intakeId, []);
       linesByIntake.get(intakeId)!.push(line);
     });
     
@@ -264,20 +302,12 @@ export async function fetchDailyTrend(dateRange: DateRange): Promise<DailyTrend[
 /**
  * Fetch status distribution for donut chart
  */
-export async function fetchStatusDistribution(dateRange: DateRange): Promise<StatusDistribution[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
+export async function fetchStatusDistribution(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<StatusDistribution[]> {
   try {
-    const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=status&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch status distribution');
-    }
-    
-    const orders = await response.json();
+    const { orders } = await getFilteredOrdersAndLines(dateRange, filters);
     
     // Count by status
     const statusMap = new Map<string, number>();
@@ -298,42 +328,21 @@ export async function fetchStatusDistribution(dateRange: DateRange): Promise<Sta
 /**
  * Fetch client statistics
  */
-export async function fetchClientStats(dateRange: DateRange): Promise<ClientStats[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
+export async function fetchClientStats(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<ClientStats[]> {
   try {
-    // Fetch orders with client info
-    const ordersResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=id,client_id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    
-    if (!ordersResponse.ok) {
-      throw new Error('Failed to fetch orders');
-    }
-    
-    const orders = await ordersResponse.json();
-    
-    // Fetch clients from customer_stg (id is TEXT with 5-digit padding like "00006")
+    const { orders, lines } = await getFilteredOrdersAndLines(dateRange, filters);
+
     const clientsResponse = await bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description&limit=3000`);
     const clients = clientsResponse.ok ? await clientsResponse.json() : [];
-    
-    // Build client map using the standard padded format (e.g. "00006")
     const clientMap = new Map<string, string>();
     clients.forEach((c: any) => {
-      const clientId = String(c.id); // Already padded: "00006"
-      const clientName = c.description || null;
-      if (clientName) {
-        clientMap.set(clientId, clientName);
-      }
+      const clientId = String(c.id);
+      if (c.description) clientMap.set(clientId, c.description);
     });
-    
-    
-    // Fetch lines
-    const linesResponse = await bvgFetch(`${API_BASE_URL}/ordenes_intake_lineas?select=intake_id,pallets,destination_id`);
-    const lines = linesResponse.ok ? await linesResponse.json() : [];
-    
-    // Create intake -> lines map
+
     const linesByIntake = new Map<string, any[]>();
     lines.forEach((line: any) => {
       const key = String(line.intake_id);
@@ -385,34 +394,20 @@ export async function fetchClientStats(dateRange: DateRange): Promise<ClientStat
 /**
  * Fetch region statistics
  */
-export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStats[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-
+export async function fetchRegionStats(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<RegionStats[]> {
   try {
-    // Orders in date range (for filtering lines)
-    const ordersResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
-    const orderIds = new Set(orders.map((o: any) => String(o.id)));
-
-    // Fetch lines with destination info (include intake_id for date filter)
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id&destination_id=not.is.null`
-    );
-    const allLines = linesResponse.ok ? await linesResponse.json() : [];
-    const lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
-
-    // Fetch locations
+    const { lines } = await getFilteredOrdersAndLines(dateRange, filters);
+    const linesWithDest = lines.filter((l: any) => l.destination_id);
     const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,region`);
     const locations = locationsResponse.ok ? await locationsResponse.json() : [];
     const locationRegion = new Map(locations.map((l: any) => [String(l.id), l.region]));
 
-    // Aggregate by region
     const regionStats = new Map<string, RegionStats>();
 
-    lines.forEach((line: any) => {
+    linesWithDest.forEach((line: any) => {
       const region = locationRegion.get(String(line.destination_id)) || 'Sin región';
       
       if (!regionStats.has(region)) {
@@ -441,34 +436,22 @@ export async function fetchRegionStats(dateRange: DateRange): Promise<RegionStat
 /**
  * Fetch top destinations
  */
-export async function fetchTopDestinations(dateRange: DateRange, limit: number = 10): Promise<DestinationStats[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-
+export async function fetchTopDestinations(
+  dateRange: DateRange,
+  limit: number = 10,
+  filters?: AnalyticsQueryFilters
+): Promise<DestinationStats[]> {
   try {
-    // Orders in date range (for filtering lines)
-    const ordersResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=id&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    const orders = ordersResponse.ok ? await ordersResponse.json() : [];
-    const orderIds = new Set(orders.map((o: any) => String(o.id)));
-
-    // Fetch lines with destination (include intake_id for date filter)
-    const linesResponse = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id&destination_id=not.is.null`
-    );
-    const allLines = linesResponse.ok ? await linesResponse.json() : [];
-    const lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
+    const { lines } = await getFilteredOrdersAndLines(dateRange, filters);
+    const linesWithDest = lines.filter((l: any) => l.destination_id);
     
     // Fetch locations
     const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description,location,region`);
     const locations = await locationsResponse.json();
     const locationMap = new Map(locations.map((l: any) => [String(l.id), l]));
-    
-    // Aggregate by destination
     const destStats = new Map<string, DestinationStats>();
-    
-    lines.forEach((line: any) => {
+
+    linesWithDest.forEach((line: any) => {
       const destId = String(line.destination_id);
       const loc = locationMap.get(destId);
       
@@ -499,22 +482,154 @@ export async function fetchTopDestinations(dateRange: DateRange, limit: number =
 }
 
 /**
+ * Fetch top origins (load points)
+ */
+export async function fetchTopOrigins(
+  dateRange: DateRange,
+  limit: number = 10,
+  filters?: AnalyticsQueryFilters
+): Promise<OriginStats[]> {
+  try {
+    const { lines } = await getFilteredOrdersAndLines(dateRange, filters);
+    const linesWithOrigin = lines.filter((l: any) => l.origin_id);
+
+    const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description,location,region`);
+    const locations = locationsResponse.ok ? await locationsResponse.json() : [];
+    const locationMap = new Map(locations.map((l: any) => [String(l.id), l]));
+    const originStats = new Map<string, OriginStats>();
+
+    linesWithOrigin.forEach((line: any) => {
+      const originId = String(line.origin_id);
+      const loc = locationMap.get(originId);
+
+      if (!originStats.has(originId)) {
+        originStats.set(originId, {
+          originId: Number(originId),
+          originName: loc?.description || `Origen ${originId}`,
+          city: loc?.location || '',
+          province: loc?.region || '',
+          pickups: 0,
+          pallets: 0,
+        });
+      }
+
+      const stats = originStats.get(originId)!;
+      stats.pickups += 1;
+      stats.pallets += Number(line.pallets) || 0;
+    });
+
+    return Array.from(originStats.values())
+      .map(s => ({ ...s, pallets: s.pallets }))
+      .sort((a, b) => b.pickups - a.pickups)
+      .slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching top origins:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch origin region statistics
+ */
+export async function fetchOriginRegionStats(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<OriginRegionStats[]> {
+  try {
+    const { lines } = await getFilteredOrdersAndLines(dateRange, filters);
+    const linesWithOrigin = lines.filter((l: any) => l.origin_id);
+
+    const locationsResponse = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,region`);
+    const locations = locationsResponse.ok ? await locationsResponse.json() : [];
+    const locationRegion = new Map(locations.map((l: any) => [String(l.id), l.region]));
+    const regionStats = new Map<string, { pickups: number; pallets: number; originIds: Set<string> }>();
+
+    linesWithOrigin.forEach((line: any) => {
+      const region = locationRegion.get(String(line.origin_id)) || 'Sin región';
+
+      if (!regionStats.has(region)) {
+        regionStats.set(region, {
+          pickups: 0,
+          pallets: 0,
+          originIds: new Set(),
+        });
+      }
+
+      const stats = regionStats.get(region)!;
+      stats.pickups += 1;
+      stats.pallets += Number(line.pallets) || 0;
+      stats.originIds.add(String(line.origin_id));
+    });
+
+    return Array.from(regionStats.entries())
+      .map(([region, s]) => ({
+        region,
+        pickups: s.pickups,
+        pallets: s.pallets,
+        uniqueOrigins: s.originIds.size,
+      }))
+      .sort((a, b) => b.pickups - a.pickups);
+  } catch (error) {
+    console.error('Error fetching origin region stats:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch top origin-destination pairs (flujo logístico)
+ */
+export async function fetchTopOriginDestinationPairs(
+  dateRange: DateRange,
+  limit: number = 8,
+  filters?: AnalyticsQueryFilters
+): Promise<OriginDestinationPair[]> {
+  try {
+    const { lines } = await getFilteredOrdersAndLines(dateRange, filters);
+    const linesWithBoth = lines.filter((l: any) => l.origin_id && l.destination_id);
+
+    const locRes = await bvgFetch(`${API_BASE_URL}/customer_location_stg?select=id,description`);
+    const locations = locRes.ok ? await locRes.json() : [];
+    const locMap = new Map(locations.map((l: any) => [String(l.id), l.description || '']));
+
+    const pairStats = new Map<string, { count: number; pallets: number }>();
+
+    linesWithBoth.forEach((l: any) => {
+      const key = `${l.origin_id}|${l.destination_id}`;
+      if (!pairStats.has(key)) pairStats.set(key, { count: 0, pallets: 0 });
+      const s = pairStats.get(key)!;
+      s.count += 1;
+      s.pallets += Number(l.pallets) || 0;
+    });
+
+    return Array.from(pairStats.entries())
+      .map(([key, s]) => {
+        const [oid, did] = key.split('|');
+        return {
+          originId: Number(oid),
+          originName: locMap.get(oid) || `Origen ${oid}`,
+          destinationId: Number(did),
+          destinationName: locMap.get(did) || `Destino ${did}`,
+          count: s.count,
+          pallets: s.pallets,
+        };
+      })
+      .sort((a, b) => b.count - a.count)
+      .slice(0, limit);
+  } catch (error) {
+    console.error('Error fetching origin-destination pairs:', error);
+    return [];
+  }
+}
+
+/**
  * Fetch hourly pattern
  */
-export async function fetchHourlyPattern(dateRange: DateRange): Promise<HourlyPattern[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
+export async function fetchHourlyPattern(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<HourlyPattern[]> {
   try {
-    const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch hourly pattern');
-    }
-    
-    const orders = await response.json();
+    const { orders } = await getFilteredOrdersAndLines(dateRange, filters);
     
     // Count by hour
     const hourMap = new Map<number, number>();
@@ -537,20 +652,12 @@ export async function fetchHourlyPattern(dateRange: DateRange): Promise<HourlyPa
 /**
  * Fetch weekday pattern
  */
-export async function fetchWeekdayPattern(dateRange: DateRange): Promise<WeekdayPattern[]> {
-  const fromDate = formatDateForQuery(dateRange.from);
-  const toDate = formatDateForQuery(dateRange.to);
-  
+export async function fetchWeekdayPattern(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<WeekdayPattern[]> {
   try {
-    const response = await bvgFetch(
-      `${API_BASE_URL}/ordenes_intake?select=created_at&created_at=gte.${fromDate}T00:00:00&created_at=lte.${toDate}T23:59:59`
-    );
-    
-    if (!response.ok) {
-      throw new Error('Failed to fetch weekday pattern');
-    }
-    
-    const orders = await response.json();
+    const { orders } = await getFilteredOrdersAndLines(dateRange, filters);
     
     // Count by day of week
     const dayMap = new Map<number, number>();
@@ -577,15 +684,17 @@ export async function fetchWeekdayPattern(dateRange: DateRange): Promise<Weekday
 /**
  * Fetch period comparison (current vs previous)
  */
-export async function fetchPeriodComparison(dateRange: DateRange): Promise<PeriodComparison> {
-  // Calculate previous period (same duration, ending when current starts)
+export async function fetchPeriodComparison(
+  dateRange: DateRange,
+  filters?: AnalyticsQueryFilters
+): Promise<PeriodComparison> {
   const durationMs = dateRange.to.getTime() - dateRange.from.getTime();
   const previousFrom = new Date(dateRange.from.getTime() - durationMs);
   const previousTo = new Date(dateRange.from.getTime() - 1);
-  
+
   const [current, previous] = await Promise.all([
-    fetchAnalyticsKPIs(dateRange),
-    fetchAnalyticsKPIs({ from: previousFrom, to: previousTo }),
+    fetchAnalyticsKPIs(dateRange, filters),
+    fetchAnalyticsKPIs({ from: previousFrom, to: previousTo }, filters),
   ]);
   
   const calcChange = (curr: number, prev: number): number => {

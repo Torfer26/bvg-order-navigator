@@ -6,6 +6,7 @@ import {
   RefreshCw, 
   Building2, 
   MapPin,
+  Warehouse,
   Filter,
   X,
   Clock
@@ -40,7 +41,8 @@ export interface AnalyticsFilters {
   customRange: DateRange;
   comparisonPeriod: ComparisonPeriod;
   clientId?: string;
-  regionId?: string;
+  regionId?: string;       // región destino (entregas)
+  originRegionId?: string;  // región origen (carga)
 }
 
 export interface ClientOption {
@@ -151,12 +153,13 @@ export function AnalyticsFilterBar({
   regions = [],
   showAdvancedFilters = false,
 }: AnalyticsFilterBarProps) {
-  const hasActiveFilters = filters.clientId || filters.regionId;
+  const hasActiveFilters = filters.clientId || filters.regionId || filters.originRegionId;
 
   const handleClearFilters = () => {
     onFiltersChange({
       clientId: undefined,
       regionId: undefined,
+      originRegionId: undefined,
     });
   };
 
@@ -281,7 +284,7 @@ export function AnalyticsFilterBar({
               </div>
             )}
 
-            {/* Region filter */}
+            {/* Region destino filter */}
             {regions.length > 0 && (
               <div className="flex items-center gap-2">
                 <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -290,12 +293,35 @@ export function AnalyticsFilterBar({
                   onValueChange={(value) => onFiltersChange({ regionId: value === 'all' ? undefined : value })}
                 >
                   <SelectTrigger className="h-8 w-full min-w-0 sm:w-[140px] text-xs">
-                    <SelectValue placeholder="Todas las regiones" />
+                    <SelectValue placeholder="Reg. destino" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas las regiones</SelectItem>
+                    <SelectItem value="all">Todas regiones destino</SelectItem>
                     {regions.map((region) => (
                       <SelectItem key={region.id} value={region.id}>
+                        {region.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Region origen filter */}
+            {regions.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Warehouse className="h-4 w-4 text-muted-foreground" />
+                <Select 
+                  value={filters.originRegionId || 'all'} 
+                  onValueChange={(value) => onFiltersChange({ originRegionId: value === 'all' ? undefined : value })}
+                >
+                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[140px] text-xs">
+                    <SelectValue placeholder="Reg. origen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas regiones origen</SelectItem>
+                    {regions.map((region) => (
+                      <SelectItem key={`orig-${region.id}`} value={region.id}>
                         {region.name}
                       </SelectItem>
                     ))}

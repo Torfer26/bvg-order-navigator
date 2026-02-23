@@ -15,7 +15,10 @@ import {
   Globe2,
   ChevronRight,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Warehouse,
+  ArrowRight,
+  AlertOctagon
 } from 'lucide-react';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -41,6 +44,9 @@ import {
   fetchHourlyPattern,
   fetchWeekdayPattern,
   fetchTopDestinations,
+  fetchTopOrigins,
+  fetchOriginRegionStats,
+  fetchTopOriginDestinationPairs,
   fetchClientsForFilter,
   fetchRegionsForFilter,
   type DateRange,
@@ -49,6 +55,9 @@ import {
   type StatusDistribution,
   type ClientStats,
   type RegionStats,
+  type OriginStats,
+  type OriginRegionStats,
+  type OriginDestinationPair,
   type PeriodComparison,
   type HourlyPattern,
   type WeekdayPattern,
@@ -634,6 +643,147 @@ function TopDestinationsChart({ data }: { data: DestinationStats[] }) {
 }
 
 // ============================================================================
+// TOP ORIGINS CHART
+// ============================================================================
+function TopOriginsChart({ data }: { data: OriginStats[] }) {
+  if (data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+        <Warehouse className="h-12 w-12 mb-3 opacity-50" />
+        <p>No hay datos de orígenes</p>
+      </div>
+    );
+  }
+
+  const maxPickups = Math.max(...data.map(d => d.pickups), 1);
+
+  return (
+    <div className="space-y-3">
+      {data.slice(0, 8).map((origin, index) => {
+        const barWidth = (origin.pickups / maxPickups) * 100;
+        const gradients = [
+          'from-amber-500 to-orange-600',
+          'from-sky-500 to-blue-600',
+          'from-indigo-500 to-violet-600',
+          'from-fuchsia-500 to-pink-600',
+          'from-orange-500 to-amber-600',
+        ];
+        const gradient = gradients[index % gradients.length];
+
+        return (
+          <div key={origin.originId} className="group">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-sm font-medium truncate pr-2" title={origin.originName}>
+                {origin.originName}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="font-semibold text-sm">{origin.pickups}</span>
+                <Badge variant="outline" className="text-xs">
+                  {origin.pallets} plt
+                </Badge>
+              </div>
+            </div>
+            <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+              <div
+                className={cn(
+                  "h-full rounded-full bg-gradient-to-r transition-all duration-500",
+                  gradient
+                )}
+                style={{ width: `${barWidth}%` }}
+              />
+            </div>
+            {origin.city && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {origin.city}{origin.province ? `, ${origin.province}` : ''}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================================
+// ORIGIN REGION CARD
+// ============================================================================
+function OriginRegionCard({
+  region,
+  index,
+  maxPickups
+}: {
+  region: OriginRegionStats;
+  index: number;
+  maxPickups: number;
+}) {
+  const percentage = (region.pickups / maxPickups) * 100;
+
+  const gradients = [
+    'from-amber-500 to-orange-600',
+    'from-sky-500 to-blue-600',
+    'from-indigo-500 to-violet-600',
+    'from-fuchsia-500 to-pink-600',
+  ];
+  const gradient = gradients[index % gradients.length];
+
+  return (
+    <div
+      className={cn(
+        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden",
+        "bg-gradient-to-br from-white/70 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40",
+        "border border-white/20 dark:border-gray-700/30",
+        "hover:shadow-xl hover:scale-[1.02]"
+      )}
+    >
+      <div className={cn(
+        "absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-5 transition-opacity duration-500",
+        gradient
+      )} />
+      
+      <div className="relative z-10">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={cn(
+              "w-10 h-10 rounded-xl flex items-center justify-center",
+              "bg-gradient-to-br", gradient,
+              "text-white shadow-lg"
+            )}>
+              <Warehouse className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="font-semibold">{region.region}</h4>
+              <p className="text-sm text-muted-foreground">
+                {region.pickups.toLocaleString('es-ES')} recogidas
+              </p>
+            </div>
+          </div>
+          <Badge className={cn(
+            "bg-gradient-to-r text-white border-0 shadow-md",
+            gradient
+          )}>
+            {region.pallets.toLocaleString('es-ES')} plt
+          </Badge>
+        </div>
+        
+        <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
+          <div
+            className={cn(
+              "h-full rounded-full bg-gradient-to-r transition-all duration-700 ease-out",
+              gradient
+            )}
+            style={{ width: `${percentage}%` }}
+          />
+        </div>
+        
+        <p className="text-xs text-muted-foreground mt-2 text-right">
+          {Math.round(percentage)}% del máximo
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
 // SKELETON LOADERS
 // ============================================================================
 function MetricSkeleton() {
@@ -728,6 +878,7 @@ export default function Analytics() {
     comparisonPeriod: 'previous',
     clientId: undefined,
     regionId: undefined,
+    originRegionId: undefined,
   });
 
   // Calculate date range based on preset (must be before dateRangeKey and useQueries)
@@ -752,6 +903,11 @@ export default function Analytics() {
     [dateRange.from, dateRange.to]
   );
 
+  const filtersKey = useMemo(
+    () => `${filters.clientId || ''}_${filters.regionId || ''}_${filters.originRegionId || ''}`,
+    [filters.clientId, filters.regionId, filters.originRegionId]
+  );
+
   // Filter options (load once)
   const { data: filterOptions } = useQuery({
     queryKey: ['analytics', 'filterOptions'],
@@ -773,55 +929,81 @@ export default function Analytics() {
     totalPallets: 0,
     totalDeliveries: 0,
     uniqueRegions: 0,
+    uniqueOrigins: 0,
     pendingLocations: 0,
+    linesWithoutOrigin: 0,
     avgOrdersPerDay: 0,
   };
+
+  const queryFilters = useMemo(
+    () => ({
+      clientId: filters.clientId,
+      regionId: filters.regionId,
+      originRegionId: filters.originRegionId,
+    }),
+    [filters.clientId, filters.regionId, filters.originRegionId]
+  );
 
   const results = useQueries({
     queries: [
       {
-        queryKey: ['analytics', 'kpis', dateRangeKey],
-        queryFn: () => fetchAnalyticsKPIs(dateRange),
+        queryKey: ['analytics', 'kpis', dateRangeKey, filtersKey],
+        queryFn: () => fetchAnalyticsKPIs(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'dailyTrend', dateRangeKey],
-        queryFn: () => fetchDailyTrend(dateRange),
+        queryKey: ['analytics', 'dailyTrend', dateRangeKey, filtersKey],
+        queryFn: () => fetchDailyTrend(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'statusDist', dateRangeKey],
-        queryFn: () => fetchStatusDistribution(dateRange),
+        queryKey: ['analytics', 'statusDist', dateRangeKey, filtersKey],
+        queryFn: () => fetchStatusDistribution(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'clientStats', dateRangeKey],
-        queryFn: () => fetchClientStats(dateRange),
+        queryKey: ['analytics', 'clientStats', dateRangeKey, filtersKey],
+        queryFn: () => fetchClientStats(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'regionStats', dateRangeKey],
-        queryFn: () => fetchRegionStats(dateRange),
+        queryKey: ['analytics', 'regionStats', dateRangeKey, filtersKey],
+        queryFn: () => fetchRegionStats(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'comparison', dateRangeKey],
-        queryFn: () => fetchPeriodComparison(dateRange),
+        queryKey: ['analytics', 'comparison', dateRangeKey, filtersKey],
+        queryFn: () => fetchPeriodComparison(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'hourlyPattern', dateRangeKey],
-        queryFn: () => fetchHourlyPattern(dateRange),
+        queryKey: ['analytics', 'hourlyPattern', dateRangeKey, filtersKey],
+        queryFn: () => fetchHourlyPattern(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'weekdayPattern', dateRangeKey],
-        queryFn: () => fetchWeekdayPattern(dateRange),
+        queryKey: ['analytics', 'weekdayPattern', dateRangeKey, filtersKey],
+        queryFn: () => fetchWeekdayPattern(dateRange, queryFilters),
         staleTime: 30 * 1000,
       },
       {
-        queryKey: ['analytics', 'topDestinations', dateRangeKey],
-        queryFn: () => fetchTopDestinations(dateRange, 10),
+        queryKey: ['analytics', 'topDestinations', dateRangeKey, filtersKey],
+        queryFn: () => fetchTopDestinations(dateRange, 10, queryFilters),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'topOrigins', dateRangeKey, filtersKey],
+        queryFn: () => fetchTopOrigins(dateRange, 10, queryFilters),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'originRegionStats', dateRangeKey, filtersKey],
+        queryFn: () => fetchOriginRegionStats(dateRange, queryFilters),
+        staleTime: 30 * 1000,
+      },
+      {
+        queryKey: ['analytics', 'originDestPairs', dateRangeKey, filtersKey],
+        queryFn: () => fetchTopOriginDestinationPairs(dateRange, 8, queryFilters),
         staleTime: 30 * 1000,
       },
     ],
@@ -837,6 +1019,9 @@ export default function Analytics() {
     hourlyPatternQuery,
     weekdayPatternQuery,
     topDestinationsQuery,
+    topOriginsQuery,
+    originRegionStatsQuery,
+    originDestPairsQuery,
   ] = results;
 
   const kpis = kpisQuery.data ?? defaultKPIs;
@@ -848,6 +1033,9 @@ export default function Analytics() {
   const hourlyPattern = hourlyPatternQuery.data ?? [];
   const weekdayPattern = weekdayPatternQuery.data ?? [];
   const topDestinations = topDestinationsQuery.data ?? [];
+  const topOrigins = topOriginsQuery.data ?? [];
+  const originRegionStats = originRegionStatsQuery.data ?? [];
+  const originDestPairs = originDestPairsQuery.data ?? [];
 
   const isLoading = results.some((r) => r.isLoading);
   const isFetching = results.some((r) => r.isFetching);
@@ -873,12 +1061,14 @@ export default function Analytics() {
       comparisonPeriod: 'previous',
       clientId: undefined,
       regionId: undefined,
+      originRegionId: undefined,
     });
   };
   
   // Derived data
   const maxClientOrders = Math.max(...(clientStats.slice(0, 10).map(c => c.totalOrders) || [1]), 1);
   const maxRegionDeliveries = Math.max(...(regionStats.map(r => r.deliveries) || [1]), 1);
+  const maxOriginRegionPickups = Math.max(...(originRegionStats.map(r => r.pickups) || [1]), 1);
   const sparklineData = dailyTrend.map(d => d.orders);
   const palletsSparkline = dailyTrend.map(d => d.pallets);
   
@@ -919,7 +1109,7 @@ export default function Analytics() {
         onRefresh={refetchAll}
         clients={filterClients}
         regions={filterRegions}
-        showAdvancedFilters={false}
+        showAdvancedFilters={true}
       />
       
       {/* Error state */}
@@ -949,7 +1139,7 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* KPI METRICS - Business focused */}
           {/* ================================================================== */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <EnhancedMetricCard
               title="Total Pedidos"
               value={kpis?.totalOrders || 0}
@@ -1001,6 +1191,24 @@ export default function Analytics() {
               icon={Users}
               accentColor="#ec4899"
               iconBg="bg-gradient-to-br from-pink-500 to-rose-600"
+            />
+            <EnhancedMetricCard
+              title="Orígenes Únicos"
+              value={kpis?.uniqueOrigins ?? 0}
+              definition={KPI_DEFINITIONS.uniqueOrigins}
+              drilldownUrl="/analytics"
+              drilldownLabel="Ver Top Orígenes"
+              icon={Warehouse}
+              accentColor="#f59e0b"
+              iconBg="bg-gradient-to-br from-amber-500 to-orange-600"
+            />
+            <EnhancedMetricCard
+              title="Líneas sin Origen"
+              value={kpis?.linesWithoutOrigin ?? 0}
+              definition={KPI_DEFINITIONS.linesWithoutOrigin}
+              icon={AlertOctagon}
+              accentColor="#ef4444"
+              iconBg="bg-gradient-to-br from-red-500 to-rose-600"
             />
           </div>
           
@@ -1084,9 +1292,9 @@ export default function Analytics() {
           </div>
           
           {/* ================================================================== */}
-          {/* TOP CLIENTS + TOP DESTINATIONS */}
+          {/* TOP CLIENTS + TOP DESTINATIONS + TOP ORIGINS */}
           {/* ================================================================== */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-3">
             {/* Top Clients */}
             <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
               <CardHeader>
@@ -1153,55 +1361,155 @@ export default function Analytics() {
                 <TopDestinationsChart data={topDestinations} />
               </CardContent>
             </Card>
+            
+            {/* Top Origins */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                      <Warehouse className="h-5 w-5 text-amber-500" />
+                      Top Orígenes
+                    </CardTitle>
+                    <CardDescription>Puntos de carga más utilizados</CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="font-normal">
+                    {topOrigins.length} orígenes
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <TopOriginsChart data={topOrigins} />
+              </CardContent>
+            </Card>
           </div>
           
           {/* ================================================================== */}
-          {/* GEOGRAPHIC DISTRIBUTION */}
+          {/* GEOGRAPHIC DISTRIBUTION - Destinations + Origins */}
           {/* ================================================================== */}
-          <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                    <Globe2 className="h-5 w-5 text-teal-500" />
-                    Distribución Geográfica
-                  </CardTitle>
-                  <CardDescription>Entregas por región</CardDescription>
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* Destinations by region */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                      <Globe2 className="h-5 w-5 text-teal-500" />
+                      Regiones de Destino
+                    </CardTitle>
+                    <CardDescription>Entregas por región de entrega</CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="font-normal">
+                    {regionStats.length} regiones
+                  </Badge>
                 </div>
-                <Badge variant="secondary" className="font-normal">
-                  {regionStats.length} regiones
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                {regionStats.slice(0, 8).map((region, i) => (
-                  <RegionCard
-                    key={region.region}
-                    region={region}
-                    index={i}
-                    maxDeliveries={maxRegionDeliveries}
-                  />
-                ))}
-              </div>
-              
-              {regionStats.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <MapPin className="h-12 w-12 mb-3 opacity-50" />
-                  <p>No hay datos de regiones</p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {regionStats.slice(0, 6).map((region, i) => (
+                    <RegionCard
+                      key={region.region}
+                      region={region}
+                      index={i}
+                      maxDeliveries={maxRegionDeliveries}
+                    />
+                  ))}
                 </div>
-              )}
-              
-              {regionStats.length > 8 && (
-                <Button variant="ghost" className="w-full mt-4 text-muted-foreground" asChild>
-                  <Link to="/masters/remitentes">
-                    Ver todas ({regionStats.length})
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Link>
-                </Button>
-              )}
-            </CardContent>
-          </Card>
+                {regionStats.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <MapPin className="h-12 w-12 mb-3 opacity-50" />
+                    <p>No hay datos de regiones de destino</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Origins by region */}
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                      <Warehouse className="h-5 w-5 text-amber-500" />
+                      Regiones de Origen
+                    </CardTitle>
+                    <CardDescription>Recogidas por región de carga</CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="font-normal">
+                    {originRegionStats.length} regiones
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {originRegionStats.slice(0, 6).map((region, i) => (
+                    <OriginRegionCard
+                      key={region.region}
+                      region={region}
+                      index={i}
+                      maxPickups={maxOriginRegionPickups}
+                    />
+                  ))}
+                </div>
+                {originRegionStats.length === 0 && (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Warehouse className="h-12 w-12 mb-3 opacity-50" />
+                    <p>No hay datos de regiones de origen</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* ================================================================== */}
+          {/* FLUJOS ORIGEN → DESTINO */}
+          {/* ================================================================== */}
+          {originDestPairs.length > 0 && (
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                      <ArrowRight className="h-5 w-5 text-indigo-500" />
+                      Top Flujos Origen → Destino
+                    </CardTitle>
+                    <CardDescription>Combinaciones origen-destino más frecuentes</CardDescription>
+                  </div>
+                  <Badge variant="secondary" className="font-normal">
+                    {originDestPairs.length} flujos
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {originDestPairs.map((pair, i) => (
+                    <div
+                      key={`${pair.originId}-${pair.destinationId}`}
+                      className="flex items-center gap-3 p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium text-sm truncate block" title={pair.originName}>
+                          {pair.originName}
+                        </span>
+                        <span className="text-xs text-muted-foreground">Origen</span>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div className="flex-1 min-w-0 text-right">
+                        <span className="font-medium text-sm truncate block" title={pair.destinationName}>
+                          {pair.destinationName}
+                        </span>
+                        <span className="text-xs text-muted-foreground">Destino</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="outline">{pair.count} líneas</Badge>
+                        <Badge variant="secondary">{pair.pallets} plt</Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>

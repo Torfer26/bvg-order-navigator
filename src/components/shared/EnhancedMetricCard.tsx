@@ -47,6 +47,18 @@ export const KPI_DEFINITIONS: Record<string, KPIDefinition> = {
     unit: "líneas",
     note: "⚠️ Bloquean el procesamiento del pedido.",
   },
+  uniqueOrigins: {
+    description: "Puntos de carga únicos con al menos una línea en el período.",
+    formula: "COUNT(DISTINCT origin_id) en líneas del período",
+    unit: "orígenes",
+    note: "Refleja diversidad de puntos de recogida.",
+  },
+  linesWithoutOrigin: {
+    description: "Líneas sin punto de carga asignado (origin_id nulo).",
+    formula: "COUNT(lineas) WHERE origin_id IS NULL",
+    unit: "líneas",
+    note: "Pueden tener raw_load_point pendiente de resolución.",
+  },
   backlogTotal: {
     description: "Pedidos que aún no han sido completados o rechazados.",
     formula: "COUNT(pedidos) WHERE status NOT IN (COMPLETED, REJECTED)",
