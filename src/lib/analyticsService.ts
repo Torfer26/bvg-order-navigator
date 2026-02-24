@@ -173,6 +173,73 @@ async function getFilteredOrdersAndLines(
   return { orders: filteredOrders, orderIds, lines };
 }
 
+/** Order summary for day drill-down modal */
+export interface OrderForDay {
+  id: string;
+  orderCode: string;
+  clientName: string;
+  subject: string;
+  status: string;
+  receivedAt: string;
+  linesCount: number;
+}
+
+/**
+ * Fetch orders for a single day (for trend chart drill-down modal).
+ * Respects same filters as analytics (client, region, originRegion).
+ */
+export async function fetchOrdersForDay(
+  date: string,
+  filters?: AnalyticsQueryFilters
+): Promise<OrderForDay[]> {
+  try {
+    const dateObj = new Date(date + 'T12:00:00');
+    const dateRange: DateRange = { from: dateObj, to: dateObj };
+    const { orders, orderIds } = await getFilteredOrdersAndLines(dateRange, filters);
+    if (orders.length === 0) return [];
+
+    const ids = Array.from(orderIds);
+    const idsParam = ids.join(',');
+    const [fullOrdersRes, clientsRes, lineCountsRes] = await Promise.all([
+      bvgFetch(`${API_BASE_URL}/ordenes_intake?id=in.(${idsParam})&select=id,order_code,subject,status,client_id,email_received_at,created_at`),
+      bvgFetch(`${API_BASE_URL}/customer_stg?select=id,description&limit=3000`),
+      bvgFetch(`${API_BASE_URL}/order_line_counts?intake_id=in.(${idsParam})&select=intake_id,lines_count`),
+    ]);
+
+    if (!fullOrdersRes.ok) return [];
+    const fullOrders = await fullOrdersRes.json();
+    const clients = clientsRes.ok ? await clientsRes.json() : [];
+    const clientsMap = new Map<string, string>();
+    clients.forEach((c: any) => {
+      const desc = c.description || `Cliente ${c.id}`;
+      clientsMap.set(String(c.id), desc);
+      const num = parseInt(c.id, 10);
+      if (!isNaN(num)) clientsMap.set(String(num), desc);
+    });
+    const lineCounts = lineCountsRes.ok ? await lineCountsRes.json() : [];
+    const lineCountsMap = new Map(lineCounts.map((r: any) => [String(r.intake_id), Number(r.lines_count) || 0]));
+
+    return fullOrders.map((row: any) => {
+      const hasClient = row.client_id != null;
+      const clientName = hasClient
+        ? (clientsMap.get(String(row.client_id)) || `Cliente ${row.client_id}`)
+        : 'Sin asignar';
+      return {
+        id: String(row.id),
+        orderCode: row.order_code || `ORD-${row.id}`,
+        clientName,
+        subject: row.subject || 'Sin asunto',
+        status: row.status || 'UNKNOWN',
+        receivedAt: row.email_received_at ?? row.created_at,
+        linesCount: lineCountsMap.get(String(row.id)) || 0,
+      };
+    });
+  } catch (error) {
+    console.error('Error fetching orders for day:', error);
+    return [];
+  }
+}
+
 // ========== API FUNCTIONS ==========
 
 /**

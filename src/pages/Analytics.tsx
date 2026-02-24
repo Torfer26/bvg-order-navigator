@@ -27,6 +27,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { OrderStatusBadge } from '@/components/shared/StatusBadge';
 
 // New enhanced components
 import { EnhancedMetricCard, KPI_DEFINITIONS } from '@/components/shared/EnhancedMetricCard';
@@ -49,7 +57,10 @@ import {
   fetchTopOriginDestinationPairs,
   fetchClientsForFilter,
   fetchRegionsForFilter,
+  fetchOrdersForDay,
   type DateRange,
+  type AnalyticsQueryFilters,
+  type OrderForDay,
   type AnalyticsKPIs,
   type DailyTrend,
   type StatusDistribution,
@@ -71,11 +82,13 @@ import {
 function AreaChart({
   data,
   height = 280,
-  showLabels = true 
+  showLabels = true,
+  onDayClick,
 }: { 
   data: DailyTrend[]; 
   height?: number;
   showLabels?: boolean;
+  onDayClick?: (date: string) => void;
 }) {
   if (!data || data.length === 0) {
     return (
@@ -203,12 +216,21 @@ function AreaChart({
             const barHeight = (d.orders / yAxisMax) * 100;
             const isToday = d.date === today;
             const hasOrders = d.orders > 0;
+            const isClickable = !!onDayClick;
             
             return (
               <div 
                 key={d.date}
-                className="flex-1 group relative flex flex-col justify-end h-full"
+                role={isClickable ? 'button' : undefined}
+                tabIndex={isClickable ? 0 : undefined}
+                onClick={isClickable ? () => onDayClick(d.date) : undefined}
+                onKeyDown={isClickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onDayClick(d.date); } : undefined}
+                className={cn(
+                  "flex-1 group relative flex flex-col justify-end h-full",
+                  isClickable && "cursor-pointer"
+                )}
                 style={{ minWidth: 0 }}
+                title={isClickable ? `${format(new Date(d.date), 'EEEE, d MMM', { locale: es })} — Clic para ver pedidos` : undefined}
               >
                 {/* Bar */}
                 <div 
@@ -252,6 +274,11 @@ function AreaChart({
                         {d.pallets} pallets
                       </div>
                     )}
+                    {isClickable && (
+                      <div className="text-white/50 text-[10px] mt-1">
+                        Clic para ver
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -288,6 +315,83 @@ function AreaChart({
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================================
+// DAY ORDERS MODAL - Pedidos del día al clicar en barra de tendencia
+// ============================================================================
+function DayOrdersModal({
+  date,
+  filters,
+  open,
+  onOpenChange,
+}: {
+  date: string | null;
+  filters: AnalyticsQueryFilters;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { data: orders = [], isLoading } = useQuery({
+    queryKey: ['analytics', 'ordersForDay', date, filters.clientId, filters.regionId, filters.originRegionId],
+    queryFn: () => fetchOrdersForDay(date!, filters),
+    enabled: !!date && open,
+    staleTime: 30 * 1000,
+  });
+
+  const dateFormatted = date ? format(new Date(date + 'T12:00:00'), "EEEE, d 'de' MMMM yyyy", { locale: es }) : '';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Pedidos del {dateFormatted}</DialogTitle>
+          <DialogDescription>
+            {orders.length} pedidos en este día
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex-1 overflow-auto -mx-6 px-6">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : orders.length === 0 ? (
+            <p className="text-muted-foreground text-sm py-8 text-center">No hay pedidos este día</p>
+          ) : (
+            <div className="space-y-2">
+              {orders.map((order) => (
+                <Link
+                  key={order.id}
+                  to={`/orders/${order.id}`}
+                  className="flex items-center gap-4 p-3 rounded-lg border bg-card hover:bg-muted/50 transition-colors"
+                  onClick={() => onOpenChange(false)}
+                >
+                  <span className="font-medium w-24 shrink-0">{order.orderCode}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm truncate">{order.clientName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{order.subject}</p>
+                  </div>
+                  <OrderStatusBadge status={order.status} />
+                  <span className="text-sm tabular-nums w-8 text-center">{order.linesCount}</span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+        {orders.length > 0 && (
+          <div className="pt-4 border-t">
+            <Link
+              to={`/orders?dateFrom=${date}&dateTo=${date}`}
+              className="text-sm text-primary hover:underline"
+              onClick={() => onOpenChange(false)}
+            >
+              Ver en lista de pedidos →
+            </Link>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -899,6 +1003,9 @@ export default function Analytics() {
     originRegionId: undefined,
   });
 
+  // Modal drill-down: pedidos del día al clicar en barra de tendencia
+  const [selectedDayDate, setSelectedDayDate] = useState<string | null>(null);
+
   // Calculate date range based on preset (must be before dateRangeKey and useQueries)
   const dateRange = useMemo<DateRange>(() => {
     const now = new Date();
@@ -1129,6 +1236,14 @@ export default function Analytics() {
         regions={filterRegions}
         showAdvancedFilters={true}
       />
+
+      {/* Modal: pedidos del día al clicar en barra de tendencia */}
+      <DayOrdersModal
+        date={selectedDayDate}
+        filters={queryFilters}
+        open={!!selectedDayDate}
+        onOpenChange={(open) => !open && setSelectedDayDate(null)}
+      />
       
       {/* Error state */}
       {hasError && <AnalyticsErrorState onRetry={refetchAll} />}
@@ -1255,7 +1370,11 @@ export default function Analytics() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
-                <AreaChart data={dailyTrend} height={280} />
+                <AreaChart
+                  data={dailyTrend}
+                  height={280}
+                  onDayClick={(date) => setSelectedDayDate(date)}
+                />
               </CardContent>
             </Card>
             
