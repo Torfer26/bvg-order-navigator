@@ -287,16 +287,16 @@ export function AnalyticsFilterBar({
             {/* Region destino filter */}
             {regions.length > 0 && (
               <div className="flex items-center gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground" />
+                <MapPin className="h-4 w-4 text-muted-foreground" title="Región de entrega" />
                 <Select 
                   value={filters.regionId || 'all'} 
                   onValueChange={(value) => onFiltersChange({ regionId: value === 'all' ? undefined : value })}
                 >
-                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[140px] text-xs">
-                    <SelectValue placeholder="Reg. destino" />
+                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[160px] text-xs" title="Solo pedidos entregados en esta región">
+                    <SelectValue placeholder="Región de entrega" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas regiones destino</SelectItem>
+                    <SelectItem value="all">Todas las regiones de entrega</SelectItem>
                     {regions.map((region) => (
                       <SelectItem key={region.id} value={region.id}>
                         {region.name}
@@ -310,16 +310,16 @@ export function AnalyticsFilterBar({
             {/* Region origen filter */}
             {regions.length > 0 && (
               <div className="flex items-center gap-2">
-                <Warehouse className="h-4 w-4 text-muted-foreground" />
+                <Warehouse className="h-4 w-4 text-muted-foreground" title="Región de carga" />
                 <Select 
                   value={filters.originRegionId || 'all'} 
                   onValueChange={(value) => onFiltersChange({ originRegionId: value === 'all' ? undefined : value })}
                 >
-                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[140px] text-xs">
-                    <SelectValue placeholder="Reg. origen" />
+                  <SelectTrigger className="h-8 w-full min-w-0 sm:w-[160px] text-xs" title="Solo pedidos cargados en esta región">
+                    <SelectValue placeholder="Región de carga" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Todas regiones origen</SelectItem>
+                    <SelectItem value="all">Todas las regiones de carga</SelectItem>
                     {regions.map((region) => (
                       <SelectItem key={`orig-${region.id}`} value={region.id}>
                         {region.name}

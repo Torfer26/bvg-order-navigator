@@ -274,8 +274,8 @@ export function EnhancedMetricCard({
             </Tooltip>
           </div>
           
-          {/* Change indicator */}
-          {change !== undefined && (
+          {/* Change indicator - ocultar cuando no hay base válida (previousValue 0) */}
+          {change !== undefined && previousValue !== undefined && previousValue > 0 && (
             <div className={cn(
               "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold",
               change > 0 ? "bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400" :
@@ -288,6 +288,11 @@ export function EnhancedMetricCard({
               {change > 0 ? '+' : ''}{change}%
             </div>
           )}
+          {change !== undefined && (previousValue === undefined || previousValue === 0) && (
+            <div className="px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-muted/50">
+              Sin datos para comparar
+            </div>
+          )}
         </div>
 
         {/* Value */}
@@ -296,23 +301,18 @@ export function EnhancedMetricCard({
             {value.toLocaleString('es-ES')}
           </p>
           
-          {/* Comparison context - explicit "vs período anterior" */}
-          {previousValue !== undefined && change !== undefined && (
+          {/* Comparison context - solo cuando hay datos válidos */}
+          {previousValue !== undefined && previousValue > 0 && change !== undefined && (
             <p className="text-sm text-muted-foreground">
               vs {previousValue.toLocaleString('es-ES')} período anterior
             </p>
           )}
-          {previousValue === undefined && change !== undefined && (
-            <p className="text-sm text-muted-foreground">
-              vs período anterior
-            </p>
-          )}
         </div>
 
-        {/* Sparkline */}
+        {/* Sparkline - altura 48px para mejor legibilidad (UX 2026) */}
         {sparklineData && sparklineData.length > 1 && (
-          <div className="mt-4 -mx-1">
-            <Sparkline data={sparklineData} color={accentColor} height={36} />
+          <div className="mt-4 -mx-1 min-h-[48px]">
+            <Sparkline data={sparklineData} color={accentColor} height={48} />
           </div>
         )}
 

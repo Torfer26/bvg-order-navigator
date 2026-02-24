@@ -122,21 +122,24 @@ function AreaChart({
 
   return (
     <div className="relative w-full select-none" style={{ height }}>
-      {/* Today's orders badge */}
+      {/* Today's orders badge - con contexto si es fin de semana */}
       {todayData && (
         <div className="absolute top-0 left-12 flex items-center gap-2 text-xs">
           <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
             Hoy: {todayData.orders} pedidos
+            {todayData.orders === 0 && (() => {
+              const now = new Date();
+              const day = now.getDay();
+              if (day === 0) return ' — domingo';
+              if (day === 6) return ' — sábado';
+              return '';
+            })()}
           </span>
         </div>
       )}
       
-      {/* Summary stats */}
-      <div className="absolute top-0 right-2 flex items-center gap-4 text-[11px]">
-        <div className="flex items-center gap-1.5 text-muted-foreground">
-          <span>Total período:</span>
-          <span className="font-bold text-foreground tabular-nums">{totalOrders.toLocaleString('es-ES')}</span>
-        </div>
+      {/* Tendencia interno (primera vs segunda mitad) - sin duplicar total (está en Badge del Card) */}
+      <div className="absolute top-0 right-2 flex items-center gap-2 text-[11px]">
         <div className={cn(
           "flex items-center gap-1 font-medium tabular-nums",
           trendPct > 5 ? "text-emerald-600 dark:text-emerald-500" : 
@@ -145,7 +148,7 @@ function AreaChart({
         )}>
           {trendPct > 5 && <TrendingUp className="h-3 w-3" />}
           {trendPct < -5 && <TrendingUp className="h-3 w-3 rotate-180" />}
-          <span>{trendPct > 0 ? '+' : ''}{trendPct.toFixed(0)}%</span>
+          <span>{trendPct > 0 ? '+' : ''}{trendPct.toFixed(0)}% vs 1ª mitad</span>
         </div>
       </div>
       
@@ -391,11 +394,12 @@ function RegionCard({
   return (
     <Link
       to={`/orders?region=${encodeURIComponent(region.region)}`}
+      title={`Ver pedidos en ${region.region}`}
       className={cn(
-        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden",
+        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden cursor-pointer",
         "bg-gradient-to-br from-white/70 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40",
         "border border-white/20 dark:border-gray-700/30",
-        "hover:shadow-xl hover:scale-[1.02]"
+        "hover:shadow-xl hover:scale-[1.02] hover:ring-2 hover:ring-primary/20"
       )}
     >
       <div className={cn(
@@ -441,6 +445,9 @@ function RegionCard({
         <p className="text-xs text-muted-foreground mt-2 text-right">
           {Math.round(percentage)}% del máximo
         </p>
+        <p className="text-[10px] text-muted-foreground/70 mt-1 text-right opacity-0 group-hover:opacity-100 transition-opacity">
+          Clic para ver pedidos
+        </p>
       </div>
     </Link>
   );
@@ -469,15 +476,17 @@ function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
           const isWorkHours = item.hour >= 8 && item.hour <= 18;
           
           return (
-            <div
+            <Link
               key={item.hour}
-              className="flex-1 flex flex-col items-center group"
+              to={`/orders?hour=${item.hour}`}
+              title={`${item.hour}:00 — ${item.orders} pedidos (clic para ver)`}
+              className="flex-1 flex flex-col items-center group cursor-pointer"
             >
               <div className="relative w-full flex justify-center">
                 {/* Tooltip */}
-                <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
                   <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap">
-                    {item.hour}:00 - {item.orders} pedidos
+                    {item.hour}:00 — {item.orders} pedidos · Clic para ver
                   </div>
                 </div>
                 {/* Bar */}
@@ -492,7 +501,7 @@ function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
                   style={{ height: `${Math.max(height, 4)}%` }}
                 />
               </div>
-            </div>
+            </Link>
           );
         })}
       </div>
@@ -556,7 +565,12 @@ function WeekdayPatternChart({ data }: { data: WeekdayPattern[] }) {
         const isWeekend = item.dayOfWeek === 0 || item.dayOfWeek === 6;
         
         return (
-          <div key={item.dayOfWeek} className="flex items-center gap-3">
+          <Link
+            key={item.dayOfWeek}
+            to={`/orders?weekday=${item.dayOfWeek}`}
+            title={`${item.dayName} — ${item.orders} pedidos (clic para ver)`}
+            className="flex items-center gap-3 group cursor-pointer py-1 -my-1 rounded-lg hover:bg-muted/40 transition-colors"
+          >
             <div className="w-12 text-sm font-medium text-muted-foreground">
               {item.dayName.slice(0, 3)}
             </div>
@@ -573,7 +587,7 @@ function WeekdayPatternChart({ data }: { data: WeekdayPattern[] }) {
               <span className="font-semibold text-sm">{item.orders}</span>
               <span className="text-xs text-muted-foreground ml-1">({percentage.toFixed(0)}%)</span>
             </div>
-          </div>
+          </Link>
         );
       })}
     </div>
@@ -728,11 +742,12 @@ function OriginRegionCard({
 
   return (
     <div
+      title="Región de carga (solo visualización)"
       className={cn(
-        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden",
+        "group relative p-5 rounded-2xl transition-all duration-300 overflow-hidden cursor-default",
         "bg-gradient-to-br from-white/70 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40",
         "border border-white/20 dark:border-gray-700/30",
-        "hover:shadow-xl hover:scale-[1.02]"
+        "hover:shadow-lg"
       )}
     >
       <div className={cn(
@@ -777,6 +792,9 @@ function OriginRegionCard({
         
         <p className="text-xs text-muted-foreground mt-2 text-right">
           {Math.round(percentage)}% del máximo
+        </p>
+        <p className="text-[10px] text-muted-foreground/60 mt-1 text-right">
+          Solo visualización
         </p>
       </div>
     </div>
