@@ -141,6 +141,7 @@ export interface Translations {
     lineWithoutDeliveryAddressSingular: string;
     lineWithoutDeliveryAddressPlural: string;
     assignDeliveryAddressHelp: string;
+    noEventsRecorded: string;
   };
   
   // Order statuses (matching bvg.order_intake_status ENUM)
@@ -414,6 +415,7 @@ export const translations: Record<Language, Translations> = {
       lineWithoutDeliveryAddressSingular: 'línea sin dirección de entrega asignada',
       lineWithoutDeliveryAddressPlural: 'líneas sin dirección de entrega asignada',
       assignDeliveryAddressHelp: 'Haz clic en "Asignar dirección" para buscar y vincular la dirección de entrega del consignatario en nuestra base de datos.',
+      noEventsRecorded: 'No hay eventos registrados para este pedido.',
     },
     orderStatus: {
       RECEIVED: 'Recibido',
@@ -665,6 +667,7 @@ export const translations: Record<Language, Translations> = {
       lineWithoutDeliveryAddressSingular: 'riga senza indirizzo di consegna assegnato',
       lineWithoutDeliveryAddressPlural: 'righe senza indirizzo di consegna assegnato',
       assignDeliveryAddressHelp: 'Clicca su "Assegna indirizzo" per cercare e collegare l\'indirizzo di consegna del consegnatario nel nostro database.',
+      noEventsRecorded: 'Nessun evento registrato per questo ordine.',
     },
     orderStatus: {
       RECEIVED: 'Ricevuto',

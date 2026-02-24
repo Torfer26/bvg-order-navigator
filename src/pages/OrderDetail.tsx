@@ -125,7 +125,7 @@ function formatEventDetails(
       'VALIDATING': 'Validando',
     };
     const newStatus = statusLabels[info.new_status as string] || info.new_status;
-    const changedBy = info.changed_by as string;
+    const changedBy = (info.changed_by || info.updated_by) as string;
     
     if (changedBy) {
       const name = changedBy.includes('@')
@@ -198,21 +198,15 @@ export default function OrderDetail() {
   const rawLogs = detailData?.events ?? [];
 
   const events = useMemo(() => {
-    const seen = new Set<string>();
-    return rawLogs
-      .map((log: any) => ({
-        id: log.id,
-        orderCode: order?.orderCode ?? '',
-        eventType: log.step || 'unknown',
-        timestamp: log.createdAt,
-        details: formatEventDetails(log.step, log.info, log.status),
-        actorEmail: log.info?.approved_by || log.info?.changed_by || undefined,
-      }))
-      .filter((e: OrderEvent) => {
-        if (seen.has(e.eventType)) return false;
-        seen.add(e.eventType);
-        return true;
-      });
+    return rawLogs.map((log: any) => ({
+      id: log.id,
+      orderCode: order?.orderCode ?? '',
+      eventType: log.step || 'unknown',
+      timestamp: log.createdAt,
+      details: formatEventDetails(log.step, log.info, log.status),
+      actorEmail: log.info?.approved_by || log.info?.changed_by || log.info?.updated_by || undefined,
+      rawInfo: log.info,
+    }));
   }, [rawLogs, order?.orderCode]);
 
   const invalidateOrderDetail = () => {
@@ -1089,81 +1083,85 @@ export default function OrderDetail() {
             <h2 className="section-title">{t.orders.timeline}</h2>
           </div>
           <div className="p-5">
-            <div className="relative space-y-4">
-              {events.map((event, index) => {
-                const Icon = eventTypeIcons[event.eventType] || Clock;
-                const isError = event.eventType === 'error';
-                const isStatusChange = event.eventType === 'status_change';
-                const isLast = index === events.length - 1;
+            {events.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">
+                {t.orders.noEventsRecorded}
+              </p>
+            ) : (
+              <div className="relative space-y-4">
+                {events.map((event, index) => {
+                  const Icon = eventTypeIcons[event.eventType] || Clock;
+                  const isError = event.eventType === 'error';
+                  const isStatusChange = event.eventType === 'status_change';
+                  const isLast = index === events.length - 1;
+                  const eventDate = new Date(event.timestamp);
+                  const prevDate = index > 0 ? new Date(events[index - 1].timestamp) : null;
+                  const isNewDay = !prevDate || eventDate.toDateString() !== prevDate.toDateString();
+                  const timeFormat = isNewDay ? 'dd MMM, HH:mm:ss' : 'HH:mm:ss';
 
-                // Parse status change details
-                let statusChangeInfo = null;
-                if (isStatusChange && event.details) {
-                  try {
-                    const info = typeof event.details === 'string' ? JSON.parse(event.details) : event.details;
-                    const statusLabels: Record<string, string> = {
-                      'REJECTED': 'Rechazado',
-                      'COMPLETED': 'Completado',
-                      'IN_REVIEW': 'En revisión',
-                      'APPROVED': 'Aprobado',
-                      'PROCESSING': 'Procesando',
-                    };
-                    statusChangeInfo = {
-                      status: statusLabels[info.new_status] || info.new_status,
-                      reason: info.reason,
-                    };
-                  } catch {
-                    statusChangeInfo = null;
-                  }
-                }
+                  const statusLabels: Record<string, string> = {
+                    'REJECTED': 'Rechazado',
+                    'COMPLETED': 'Completado',
+                    'IN_REVIEW': 'En revisión',
+                    'APPROVED': 'Aprobado',
+                    'PROCESSING': 'Procesando',
+                  };
+                  const rawInfo = (event as OrderEvent & { rawInfo?: Record<string, unknown> }).rawInfo;
+                  const statusChangeInfo = isStatusChange && rawInfo?.new_status
+                    ? {
+                        status: statusLabels[rawInfo.new_status as string] || String(rawInfo.new_status),
+                        reason: rawInfo.reason as string | undefined,
+                      }
+                    : null;
 
-                return (
-                  <div key={event.id} className="flex gap-3">
-                    <div className="relative">
-                      <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-full ${
-                          isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
-                            ? 'bg-destructive/10' 
-                            : 'bg-primary/10'
-                        }`}
-                      >
-                        <Icon className={`h-4 w-4 ${
-                          isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
-                            ? 'text-destructive' 
-                            : 'text-primary'
-                        }`} />
+                  return (
+                    <div key={event.id} className="flex gap-3">
+                      <div className="relative">
+                        <div
+                          className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                            isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
+                              ? 'bg-destructive/10'
+                              : 'bg-primary/10'
+                          }`}
+                        >
+                          <Icon className={`h-4 w-4 ${
+                            isError || (isStatusChange && statusChangeInfo?.status === 'Rechazado')
+                              ? 'text-destructive'
+                              : 'text-primary'
+                          }`} />
+                        </div>
+                        {!isLast && (
+                          <div className="absolute left-1/2 top-8 h-full w-px -translate-x-1/2 bg-border" />
+                        )}
                       </div>
-                      {!isLast && (
-                        <div className="absolute left-1/2 top-8 h-full w-px -translate-x-1/2 bg-border" />
-                      )}
-                    </div>
-                    <div className="flex-1 pb-4">
-                      {isStatusChange && statusChangeInfo ? (
-                        <>
-                          <p className="font-medium">{statusChangeInfo.status}</p>
-                          {statusChangeInfo.reason && (
-                            <p className="text-sm text-muted-foreground italic">
-                              "{statusChangeInfo.reason}"
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <p className="font-medium">{eventLabels[event.eventType] || event.details}</p>
-                      )}
-                      <p className="text-sm text-muted-foreground">
-                        {format(new Date(event.timestamp), 'HH:mm:ss', { locale: dateLocale })}
-                      </p>
-                      {event.actorEmail && (
+                      <div className="flex-1 pb-4">
+                        {isStatusChange && statusChangeInfo ? (
+                          <>
+                            <p className="font-medium">{statusChangeInfo.status}</p>
+                            {statusChangeInfo.reason && (
+                              <p className="text-sm text-muted-foreground italic">
+                                &quot;{statusChangeInfo.reason}&quot;
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <p className="font-medium">{eventLabels[event.eventType] || event.details}</p>
+                        )}
                         <p className="text-sm text-muted-foreground">
-                          <User className="mr-1 inline h-3 w-3" />
-                          {event.actorEmail}
+                          {format(eventDate, timeFormat, { locale: dateLocale })}
                         </p>
-                      )}
+                        {event.actorEmail && (
+                          <p className="text-sm text-muted-foreground">
+                            <User className="mr-1 inline h-3 w-3" />
+                            {event.actorEmail}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

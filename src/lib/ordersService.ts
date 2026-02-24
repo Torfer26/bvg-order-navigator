@@ -125,7 +125,10 @@ export async function fetchOrderDetailData(intakeId: string): Promise<OrderDetai
           fetchOrdersLog(foundOrder.messageId),
           fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
         ])
-      : Promise.resolve([[], null] as const),
+      : Promise.all([
+          fetchOrdersLogByIntakeId(intakeId),
+          Promise.resolve(null as string | null),
+        ]),
   ]);
 
   const [rawLogs, emailSummary] = logsAndTriage;
@@ -952,6 +955,18 @@ export async function fetchEmailStats() {
   }
 }
 
+function mapLogRow(row: any) {
+  return {
+    id: String(row.id),
+    messageId: row.message_id,
+    intakeId: row.intake_id,
+    step: row.step,
+    status: row.status,
+    info: row.info,
+    createdAt: row.created_at,
+  };
+}
+
 /**
  * Fetch orders logs from orders_log
  */
@@ -962,23 +977,30 @@ export async function fetchOrdersLog(messageId?: string) {
       url = `${API_BASE_URL}/orders_log?message_id=eq.${messageId}&order=created_at.asc`;
     }
 
-
     const response = await bvgFetch(url);
     if (!response.ok) throw new Error('Failed to fetch orders log');
 
     const data = await response.json();
-
-    return data.map((row: any) => ({
-      id: String(row.id),
-      messageId: row.message_id,
-      intakeId: row.intake_id,
-      step: row.step,
-      status: row.status,
-      info: row.info,
-      createdAt: row.created_at,
-    }));
+    return data.map(mapLogRow);
   } catch (error) {
     console.error('Error fetching orders log:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch orders logs by intake_id (fallback when message_id is missing)
+ */
+export async function fetchOrdersLogByIntakeId(intakeId: string) {
+  try {
+    const url = `${API_BASE_URL}/orders_log?intake_id=eq.${intakeId}&order=created_at.asc&limit=100`;
+    const response = await bvgFetch(url);
+    if (!response.ok) throw new Error('Failed to fetch orders log by intake');
+
+    const data = await response.json();
+    return data.map(mapLogRow);
+  } catch (error) {
+    console.error('Error fetching orders log by intake:', error);
     return [];
   }
 }
