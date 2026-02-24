@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
+import { fetchHolidays } from '@/lib/ordersService';
 import {
   Dialog,
   DialogContent,
@@ -84,11 +85,13 @@ function AreaChart({
   height = 280,
   showLabels = true,
   onDayClick,
+  holidayContext,
 }: { 
   data: DailyTrend[]; 
   height?: number;
   showLabels?: boolean;
   onDayClick?: (date: string) => void;
+  holidayContext?: string | null;
 }) {
   if (!data || data.length === 0) {
     return (
@@ -145,6 +148,7 @@ function AreaChart({
               const day = now.getDay();
               if (day === 0) return ' — domingo';
               if (day === 6) return ' — sábado';
+              if (holidayContext) return ` — ${holidayContext}`;
               return '';
             })()}
           </span>
@@ -1048,6 +1052,16 @@ export default function Analytics() {
   const filterClients = filterOptions?.clients ?? [];
   const filterRegions = filterOptions?.regions ?? [];
 
+  // Festivos para contexto "Hoy: 0 — festivo"
+  const { data: holidays = [] } = useQuery({
+    queryKey: ['holidays'],
+    queryFn: fetchHolidays,
+    staleTime: 10 * 60 * 1000,
+  });
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const todayHoliday = holidays.find((h) => (h.date || '').slice(0, 10) === todayStr);
+  const holidayContext = todayHoliday?.name ?? (todayHoliday ? 'festivo' : null);
+
   // Analytics data with useQueries (cached by dateRange)
   const defaultKPIs: AnalyticsKPIs = {
     totalOrders: 0,
@@ -1235,6 +1249,7 @@ export default function Analytics() {
         clients={filterClients}
         regions={filterRegions}
         showAdvancedFilters={true}
+        dateRange={dateRange}
       />
 
       {/* Modal: pedidos del día al clicar en barra de tendencia */}
@@ -1272,12 +1287,15 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* KPI METRICS - Business focused */}
           {/* ================================================================== */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          {(() => {
+            const showComparison = filters.comparisonPeriod !== 'none';
+            return (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <EnhancedMetricCard
               title="Total Pedidos"
               value={kpis?.totalOrders || 0}
-              previousValue={comparison?.previous.totalOrders}
-              change={comparison?.percentChange.orders}
+              previousValue={showComparison ? comparison?.previous.totalOrders : undefined}
+              change={showComparison ? comparison?.percentChange.orders : undefined}
               definition={KPI_DEFINITIONS.totalOrders}
               drilldownUrl={`/orders?from=${format(dateRange.from, 'yyyy-MM-dd')}&to=${format(dateRange.to, 'yyyy-MM-dd')}`}
               drilldownLabel="Ver pedidos"
@@ -1289,8 +1307,8 @@ export default function Analytics() {
             <EnhancedMetricCard
               title="Pallets Movidos"
               value={kpis?.totalPallets || 0}
-              previousValue={comparison?.previous.totalPallets}
-              change={comparison?.percentChange.pallets}
+              previousValue={showComparison ? comparison?.previous.totalPallets : undefined}
+              change={showComparison ? comparison?.percentChange.pallets : undefined}
               definition={KPI_DEFINITIONS.totalPallets}
               drilldownUrl={`/orders?from=${format(dateRange.from, 'yyyy-MM-dd')}&to=${format(dateRange.to, 'yyyy-MM-dd')}`}
               drilldownLabel="Ver detalles"
@@ -1302,8 +1320,8 @@ export default function Analytics() {
             <EnhancedMetricCard
               title="Entregas Resueltas"
               value={kpis?.totalDeliveries || 0}
-              previousValue={comparison?.previous.totalDeliveries}
-              change={comparison?.percentChange.deliveries}
+              previousValue={showComparison ? comparison?.previous.totalDeliveries : undefined}
+              change={showComparison ? comparison?.percentChange.deliveries : undefined}
               definition={KPI_DEFINITIONS.deliveriesResolved}
               drilldownUrl="/orders?location_status=AUTO,MANUALLY_SET,CONFIRMED"
               drilldownLabel="Ver entregas"
@@ -1346,6 +1364,8 @@ export default function Analytics() {
               iconBg="bg-gradient-to-br from-red-500 to-rose-600"
             />
           </div>
+            );
+          })()}
           
           {/* ================================================================== */}
           {/* MAIN CHARTS ROW - Trend + Status */}
@@ -1374,6 +1394,7 @@ export default function Analytics() {
                   data={dailyTrend}
                   height={280}
                   onDayClick={(date) => setSelectedDayDate(date)}
+                  holidayContext={holidayContext}
                 />
               </CardContent>
             </Card>

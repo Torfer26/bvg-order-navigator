@@ -64,6 +64,14 @@
     --header-height: 4rem;
     --sidebar-width: 16rem;
     --sidebar-collapsed-width: 4.5rem;
+
+    /* KPI Analytics accents (Fase 2.4 - paleta coherente) */
+    --kpi-orders: 217 91% 60%;
+    --kpi-pallets: 160 84% 39%;
+    --kpi-deliveries: 263 70% 58%;
+    --kpi-clients: 330 81% 60%;
+    --kpi-origins: 38 92% 50%;
+    --kpi-alert: 0 84% 60%;
   }
 
   .dark {

@@ -141,6 +141,8 @@ export interface AnalyticsFilterBarProps {
   clients?: ClientOption[];
   regions?: RegionOption[];
   showAdvancedFilters?: boolean;
+  /** Rangos de fechas actual y anterior para mostrar comparación integrada (6.3) */
+  dateRange?: DateRange;
 }
 
 export function AnalyticsFilterBar({
@@ -152,8 +154,22 @@ export function AnalyticsFilterBar({
   clients = [],
   regions = [],
   showAdvancedFilters = false,
+  dateRange,
 }: AnalyticsFilterBarProps) {
   const hasActiveFilters = filters.clientId || filters.regionId || filters.originRegionId;
+
+  // Rangos explícitos para comparación (6.3)
+  const comparisonRanges = dateRange && filters.comparisonPeriod !== 'none'
+    ? (() => {
+        const durationMs = dateRange.to.getTime() - dateRange.from.getTime();
+        const prevTo = new Date(dateRange.from.getTime() - 1);
+        const prevFrom = new Date(dateRange.from.getTime() - durationMs);
+        return {
+          current: { from: dateRange.from, to: dateRange.to },
+          previous: { from: prevFrom, to: prevTo },
+        };
+      })()
+    : null;
 
   const handleClearFilters = () => {
     onFiltersChange({
@@ -364,9 +380,9 @@ export function AnalyticsFilterBar({
         <span className="text-muted-foreground">
           • {format(filters.customRange.from, 'dd MMM yyyy', { locale: es })} → {format(filters.customRange.to, 'dd MMM yyyy', { locale: es })}
         </span>
-        {filters.comparisonPeriod !== 'none' && (
-          <span className="text-muted-foreground">
-            • Comparando con {comparisonLabels[filters.comparisonPeriod].toLowerCase()}
+        {comparisonRanges && (
+          <span className="text-muted-foreground text-xs sm:text-sm">
+            • Comparando: {format(comparisonRanges.current.from, 'd MMM', { locale: es })} – {format(comparisonRanges.current.to, 'd MMM', { locale: es })} vs {format(comparisonRanges.previous.from, 'd MMM', { locale: es })} – {format(comparisonRanges.previous.to, 'd MMM', { locale: es })}
           </span>
         )}
       </div>
