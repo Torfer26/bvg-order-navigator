@@ -128,6 +128,7 @@ export interface Translations {
     locality: string;         // Antes "destino" - es la localidad/ciudad
     deliveryAddress: string;  // Nueva columna para dirección de entrega
     pallets: string;
+    palletsShort: string;
     deliveryDate: string;
     lineNotes: string;
     pending: string;
@@ -402,6 +403,7 @@ export const translations: Record<Language, Translations> = {
       locality: 'Localidad',
       deliveryAddress: 'Dirección de Entrega',
       pallets: 'Palets',
+      palletsShort: 'pal',
       deliveryDate: 'Fecha Entrega',
       lineNotes: 'Nota',
       pending: 'Pendiente',
@@ -653,6 +655,7 @@ export const translations: Record<Language, Translations> = {
       locality: 'Località',
       deliveryAddress: 'Indirizzo di Consegna',
       pallets: 'Pallet',
+      palletsShort: 'pal',
       deliveryDate: 'Data Consegna',
       lineNotes: 'Note',
       pending: 'In attesa',

@@ -180,7 +180,14 @@ export default function Orders() {
     {
       key: 'lines',
       header: t.orders.linesCount,
-      cell: (row) => row.linesCount,
+      cell: (row) => (
+        <span className="tabular-nums">
+          {row.linesCount}
+          {(row.totalPallets ?? 0) > 0 && (
+            <span className="text-muted-foreground ml-1">· {row.totalPallets} {t.orders.palletsShort}</span>
+          )}
+        </span>
+      ),
       className: 'text-center',
     },
     {
