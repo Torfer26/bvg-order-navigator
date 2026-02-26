@@ -39,8 +39,9 @@ export async function fetchOrders(): Promise<OrderIntake[]> {
       // Recibido = email_received_at (Outlook receivedDateTime), fallback created_at
       receivedAt: row.email_received_at ?? row.created_at,
       processedAt: row.processed_at ?? row.updated_at,
-      // Get real line count from materialized view
-      linesCount: lineCountsMap[row.id] || 0,
+      // Get real line count and pallets from materialized view
+      linesCount: lineCountsMap[row.id]?.linesCount ?? 0,
+      totalPallets: lineCountsMap[row.id]?.totalPallets ?? 0,
     };
     });
   } catch (error) {
@@ -56,7 +57,7 @@ export async function fetchOrderById(intakeId: string): Promise<OrderIntake | nu
   try {
     const [orderRes, lineCountRes] = await Promise.all([
       bvgFetch(`${API_BASE_URL}/ordenes_intake?id=eq.${intakeId}&limit=1`),
-      bvgFetch(`${API_BASE_URL}/order_line_counts?intake_id=eq.${intakeId}&select=intake_id,lines_count`),
+      bvgFetch(`${API_BASE_URL}/order_line_counts?intake_id=eq.${intakeId}&select=intake_id,lines_count,total_pallets`),
     ]);
     if (!orderRes.ok) return null;
     const ordersData = await orderRes.json();
@@ -76,9 +77,13 @@ export async function fetchOrderById(intakeId: string): Promise<OrderIntake | nu
     }
 
     let linesCount = 0;
+    let totalPallets = 0;
     if (lineCountRes.ok) {
       const counts = await lineCountRes.json();
-      if (Array.isArray(counts) && counts.length > 0) linesCount = Number(counts[0].lines_count) || 0;
+      if (Array.isArray(counts) && counts.length > 0) {
+        linesCount = Number(counts[0].lines_count) || 0;
+        totalPallets = Number(counts[0].total_pallets) || 0;
+      }
     }
 
     return {
@@ -94,6 +99,7 @@ export async function fetchOrderById(intakeId: string): Promise<OrderIntake | nu
       receivedAt: row.email_received_at ?? row.created_at,
       processedAt: row.processed_at ?? row.updated_at,
       linesCount,
+      totalPallets,
     };
   } catch (error) {
     console.error('Error fetching order by id:', error);
@@ -171,18 +177,26 @@ export async function fetchOrderDetailData(intakeId: string): Promise<OrderDetai
   };
 }
 
+/** Map: intake_id -> { linesCount, totalPallets } from materialized view */
+type LineCountsMap = Record<string, { linesCount: number; totalPallets: number }>;
+
 /**
- * Fetch a map of intake_id -> lines_count from materialized view
+ * Fetch a map of intake_id -> { linesCount, totalPallets } from materialized view
  */
-async function fetchLineCountsMap(): Promise<Record<string, number>> {
+async function fetchLineCountsMap(): Promise<LineCountsMap> {
   try {
-    const response = await bvgFetch(`${API_BASE_URL}/order_line_counts?select=intake_id,lines_count`);
+    const response = await bvgFetch(
+      `${API_BASE_URL}/order_line_counts?select=intake_id,lines_count,total_pallets`
+    );
     if (!response.ok) return {};
 
     const data = await response.json();
-    const map: Record<string, number> = {};
+    const map: LineCountsMap = {};
     data.forEach((row: any) => {
-      map[String(row.intake_id)] = Number(row.lines_count) || 0;
+      map[String(row.intake_id)] = {
+        linesCount: Number(row.lines_count) || 0,
+        totalPallets: Number(row.total_pallets) || 0,
+      };
     });
     return map;
   } catch {

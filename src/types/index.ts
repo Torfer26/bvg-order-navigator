@@ -41,6 +41,7 @@ export interface OrderIntake {
   receivedAt: string;
   processedAt?: string;
   linesCount: number;
+  totalPallets?: number;
 }
 
 // Location status for order lines
