@@ -1290,7 +1290,7 @@ export default function Analytics() {
           {(() => {
             const showComparison = filters.comparisonPeriod !== 'none';
             return (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 min-w-0">
             <EnhancedMetricCard
               title="Total Pedidos"
               value={kpis?.totalOrders || 0}

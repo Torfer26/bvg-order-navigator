@@ -191,6 +191,7 @@ export function EnhancedMetricCard({
         "bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40",
         "backdrop-blur-xl shadow-lg hover:shadow-xl",
         "hover:translate-y-[-2px]",
+        "min-w-0 overflow-hidden",
         variantStyles[variant]
       )}
       onClick={handleClick}
@@ -221,17 +222,17 @@ export function EnhancedMetricCard({
         </div>
       )}
 
-      <div className="relative z-10">
+      <div className="relative z-10 min-w-0">
         {/* Header with icon and definition tooltip */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <div className={cn(
               "p-2.5 rounded-xl text-white shadow-lg",
               iconBg
             )}>
               <Icon className="h-5 w-5" />
             </div>
-            <span className="font-medium text-sm text-muted-foreground">{title}</span>
+            <span className="font-medium text-sm text-muted-foreground truncate">{title}</span>
             
             {/* Definition tooltip */}
             <Tooltip>
@@ -277,7 +278,7 @@ export function EnhancedMetricCard({
           {/* Change indicator - ocultar cuando no hay base válida (previousValue 0) */}
           {change !== undefined && previousValue !== undefined && previousValue > 0 && (
             <div className={cn(
-              "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold",
+              "flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold shrink-0",
               change > 0 ? "bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-400" :
               change < 0 ? "bg-red-100/80 text-red-700 dark:bg-red-900/50 dark:text-red-400" :
               "bg-gray-100/80 text-gray-600 dark:bg-gray-800/50 dark:text-gray-400"
@@ -289,21 +290,21 @@ export function EnhancedMetricCard({
             </div>
           )}
           {change !== undefined && (previousValue === undefined || previousValue === 0) && (
-            <div className="px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-muted/50">
+            <div className="px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-muted/50 shrink-0 whitespace-nowrap">
               Sin datos para comparar
             </div>
           )}
         </div>
 
         {/* Value */}
-        <div className="space-y-1">
-          <p className="text-3xl font-bold tracking-tight">
+        <div className="space-y-1 min-w-0">
+          <p className="text-3xl font-bold tracking-tight break-words overflow-hidden">
             {value.toLocaleString('es-ES')}
           </p>
           
           {/* Comparison context - solo cuando hay datos válidos */}
           {previousValue !== undefined && previousValue > 0 && change !== undefined && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-muted-foreground truncate">
               vs {previousValue.toLocaleString('es-ES')} período anterior
             </p>
           )}
@@ -311,14 +312,14 @@ export function EnhancedMetricCard({
 
         {/* Sparkline - altura 48px para mejor legibilidad (UX 2026) */}
         {sparklineData && sparklineData.length > 1 && (
-          <div className="mt-4 -mx-1 min-h-[48px]">
+          <div className="mt-4 -mx-1 min-h-[48px] overflow-hidden">
             <Sparkline data={sparklineData} color={accentColor} height={48} />
           </div>
         )}
 
         {/* Drill-down CTA - always visible for warning/critical, hover for default */}
         <div className={cn(
-          "mt-4 flex items-center gap-1 text-sm font-medium transition-all duration-200",
+          "mt-4 flex items-center gap-1 text-sm font-medium transition-all duration-200 truncate",
           variant === 'default' 
             ? "opacity-0 group-hover:opacity-100 text-primary" 
             : variant === 'warning'
