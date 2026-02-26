@@ -769,6 +769,41 @@ export async function fetchClients() {
 }
 
 /**
+ * Fetch clients with last order date (from customer_stg_with_last_order view)
+ * Use for /masters/clients with "Último pedido" column and sort by last order
+ */
+export async function fetchClientsWithLastOrder(): Promise<Client[]> {
+  try {
+    const response = await bvgFetch(
+      `${API_BASE_URL}/customer_stg_with_last_order?order=description.asc&limit=3000`
+    );
+    if (!response.ok) throw new Error('Failed to fetch clients with last order');
+
+    const data = await response.json();
+
+    return data.map((row: any) => ({
+      id: row.id,
+      code: row.id,
+      name: row.description || row.id,
+      email: row.email || '',
+      active: row.is_enable !== false,
+      createdAt: row.imported_at || row.created_at,
+      updatedAt: row.imported_at || row.updated_at,
+      companyCode: row.company_code,
+      type: row.type,
+      address: row.address,
+      location: row.location,
+      country: row.country,
+      lastOrderAt: row.last_order_at || null,
+    }));
+  } catch (error) {
+    console.error('Error fetching clients with last order:', error);
+    // Fallback to fetchClients if view doesn't exist yet (migration not applied)
+    return fetchClients();
+  }
+}
+
+/**
  * Fetch customer emails
  */
 export async function fetchCustomerEmails() {

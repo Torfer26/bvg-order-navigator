@@ -140,6 +140,8 @@ export interface Client {
   active: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Fecha del último pedido recibido (ISO string o null si sin pedidos) */
+  lastOrderAt?: string | null;
 }
 
 export interface Remitente {

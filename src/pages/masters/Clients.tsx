@@ -4,7 +4,7 @@ import { FilterBar } from '@/components/shared/FilterBar';
 import { StatusBadge } from '@/components/shared/StatusBadge';
 import { Button } from '@/components/ui/button';
 import {
-  fetchClients,
+  fetchClientsWithLastOrder,
   fetchClientWithDefaultLocation,
   saveCustomerDefaultLoadLocation,
   clearCustomerDefaultLoadLocation,
@@ -35,6 +35,7 @@ export default function Clients() {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [sortBy, setSortBy] = useState<string>('lastOrder_desc');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ code: '', name: '', email: '', active: true });
@@ -46,7 +47,7 @@ export default function Clients() {
     async function loadData() {
       setLoading(true);
       try {
-        const clientsData = await fetchClients();
+        const clientsData = await fetchClientsWithLastOrder();
         setClients(clientsData);
       } catch (error) {
         console.error('Error loading clients:', error);
@@ -58,17 +59,36 @@ export default function Clients() {
   }, []);
 
   const filteredClients = useMemo(() => {
-    if (!search) return clients;
-    const s = search.toLowerCase();
-    return clients.filter(
-      (c) =>
-        c.code?.toLowerCase().includes(s) ||
-        c.name?.toLowerCase().includes(s) ||
-        c.email?.toLowerCase().includes(s) ||
-        c.location?.toLowerCase().includes(s) ||
-        c.companyCode?.toLowerCase().includes(s)
-    );
-  }, [search, clients]);
+    let result = clients;
+    if (search) {
+      const s = search.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.code?.toLowerCase().includes(s) ||
+          c.name?.toLowerCase().includes(s) ||
+          c.email?.toLowerCase().includes(s) ||
+          c.location?.toLowerCase().includes(s) ||
+          c.companyCode?.toLowerCase().includes(s)
+      );
+    }
+    // Ordenar
+    const [key, dir] = sortBy.split('_');
+    const mult = dir === 'desc' ? -1 : 1;
+    return [...result].sort((a, b) => {
+      if (key === 'lastOrder') {
+        const aVal = a.lastOrderAt ? new Date(a.lastOrderAt).getTime() : 0;
+        const bVal = b.lastOrderAt ? new Date(b.lastOrderAt).getTime() : 0;
+        return (aVal - bVal) * mult;
+      }
+      if (key === 'name') {
+        return ((a.name || '').localeCompare(b.name || '')) * mult;
+      }
+      if (key === 'code') {
+        return ((a.code || '').localeCompare(b.code || '')) * mult;
+      }
+      return 0;
+    });
+  }, [search, clients, sortBy]);
 
   const openNew = () => {
     setEditingClient(null);
@@ -189,6 +209,14 @@ export default function Clients() {
         ),
     },
     {
+      key: 'lastOrderAt',
+      header: t.clients?.lastOrder ?? 'Último pedido',
+      cell: (row) =>
+        row.lastOrderAt
+          ? format(new Date(row.lastOrderAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale })
+          : (t.clients?.noOrders ?? '-'),
+    },
+    {
       key: 'createdAt',
       header: 'Importado',
       cell: (row) => row.createdAt ? format(new Date(row.createdAt), 'dd/MM/yyyy', { locale: dateLocale }) : '-',
@@ -228,10 +256,27 @@ export default function Clients() {
       </div>
 
       <FilterBar
-        filters={[{ key: 'search', type: 'search', label: t.common.search, placeholder: t.clients.searchPlaceholder }]}
-        values={{ search }}
-        onChange={(_, value) => setSearch(value || '')}
-        onClear={() => setSearch('')}
+        filters={[
+          { key: 'search', type: 'search', label: t.common.search, placeholder: t.clients.searchPlaceholder },
+          {
+            key: 'sort',
+            type: 'select',
+            label: t.clients?.sortBy ?? 'Ordenar por',
+            options: [
+              { value: 'lastOrder_desc', label: t.clients?.sortLastOrderDesc ?? 'Último pedido (más reciente)' },
+              { value: 'lastOrder_asc', label: t.clients?.sortLastOrderAsc ?? 'Último pedido (más antiguo)' },
+              { value: 'name_asc', label: t.clients?.sortNameAsc ?? 'Nombre A-Z' },
+              { value: 'name_desc', label: t.clients?.sortNameDesc ?? 'Nombre Z-A' },
+              { value: 'code_asc', label: t.clients?.sortCodeAsc ?? 'Código' },
+            ],
+          },
+        ]}
+        values={{ search, sort: sortBy }}
+        onChange={(key, value) => {
+          if (key === 'search') setSearch(value || '');
+          if (key === 'sort') setSortBy(value || 'lastOrder_desc');
+        }}
+        onClear={() => { setSearch(''); setSortBy('lastOrder_desc'); }}
       />
 
       <DataTable

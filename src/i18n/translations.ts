@@ -204,6 +204,14 @@ export interface Translations {
     noClientsFound: string;
     searchPlaceholder: string;
     lastUpdate: string;
+    lastOrder?: string;
+    noOrders?: string;
+    sortBy?: string;
+    sortLastOrderDesc?: string;
+    sortLastOrderAsc?: string;
+    sortNameAsc?: string;
+    sortNameDesc?: string;
+    sortCodeAsc?: string;
   };
   
   // Masters - Remitentes
@@ -471,6 +479,14 @@ export const translations: Record<Language, Translations> = {
       noClientsFound: 'No se encontraron clientes',
       searchPlaceholder: 'Buscar por código, nombre, email...',
       lastUpdate: 'Última Actualización',
+      lastOrder: 'Último pedido',
+      noOrders: 'Sin pedidos',
+      sortBy: 'Ordenar por',
+      sortLastOrderDesc: 'Último pedido (más reciente)',
+      sortLastOrderAsc: 'Último pedido (más antiguo)',
+      sortNameAsc: 'Nombre A-Z',
+      sortNameDesc: 'Nombre Z-A',
+      sortCodeAsc: 'Código',
     },
     remitentes: {
       title: 'Remitentes',
@@ -724,6 +740,14 @@ export const translations: Record<Language, Translations> = {
       noClientsFound: 'Nessun cliente trovato',
       searchPlaceholder: 'Cerca per codice, nome, email...',
       lastUpdate: 'Ultimo Aggiornamento',
+      lastOrder: 'Ultimo ordine',
+      noOrders: 'Nessun ordine',
+      sortBy: 'Ordina per',
+      sortLastOrderDesc: 'Ultimo ordine (più recente)',
+      sortLastOrderAsc: 'Ultimo ordine (più vecchio)',
+      sortNameAsc: 'Nome A-Z',
+      sortNameDesc: 'Nome Z-A',
+      sortCodeAsc: 'Codice',
     },
     remitentes: {
       title: 'Remitentes',
