@@ -87,6 +87,7 @@ function AreaChart({
   showLabels = true,
   onDayClick,
   holidayContext,
+  ariaLabel,
 }: { 
   data: DailyTrend[]; 
   metric?: 'orders' | 'pallets';
@@ -94,10 +95,15 @@ function AreaChart({
   showLabels?: boolean;
   onDayClick?: (date: string) => void;
   holidayContext?: string | null;
+  ariaLabel?: string;
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center text-muted-foreground" style={{ height }}>
+      <div
+        className="flex items-center justify-center text-muted-foreground min-w-0"
+        style={{ height }}
+        {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+      >
         <div className="text-center">
           <BarChart3 className="h-10 w-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm">No hay datos para el período seleccionado</p>
@@ -142,7 +148,11 @@ function AreaChart({
   const chartPadding = { top: 32, right: 12, bottom: showLabels ? 40 : 16, left: 48 };
 
   return (
-    <div className="relative w-full select-none" style={{ height }}>
+    <div
+      className="relative w-full min-w-0 select-none"
+      style={{ height }}
+      {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+    >
       {/* Today's value badge - con contexto si es fin de semana */}
       {todayData && (
         <div className="absolute top-0 left-12 flex items-center gap-2 text-xs">
@@ -581,10 +591,13 @@ function RegionCard({
 // ============================================================================
 // HOURLY PATTERN CHART - Bar chart showing orders by hour
 // ============================================================================
-function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
+function HourlyPatternChart({ data, ariaLabel }: { data: HourlyPattern[]; ariaLabel?: string }) {
   if (data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      <div
+        className="flex flex-col items-center justify-center py-12 text-muted-foreground min-w-0"
+        {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+      >
         <Activity className="h-12 w-12 mb-3 opacity-50" />
         <p>No hay datos de patrón horario</p>
       </div>
@@ -594,7 +607,10 @@ function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
   const maxOrders = Math.max(...data.map(d => d.orders), 1);
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2 min-w-0"
+      {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+    >
       <div className="flex items-end justify-between gap-1 h-40">
         {data.map((item) => {
           const height = (item.orders / maxOrders) * 100;
@@ -652,10 +668,13 @@ function HourlyPatternChart({ data }: { data: HourlyPattern[] }) {
 // ============================================================================
 // WEEKDAY PATTERN CHART - Bar chart showing orders by day of week
 // ============================================================================
-function WeekdayPatternChart({ data }: { data: WeekdayPattern[] }) {
+function WeekdayPatternChart({ data, ariaLabel }: { data: WeekdayPattern[]; ariaLabel?: string }) {
   if (data.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+      <div
+        className="flex flex-col items-center justify-center py-12 text-muted-foreground min-w-0"
+        {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+      >
         <Activity className="h-12 w-12 mb-3 opacity-50" />
         <p>No hay datos de patrón semanal</p>
       </div>
@@ -683,7 +702,10 @@ function WeekdayPatternChart({ data }: { data: WeekdayPattern[] }) {
   ];
 
   return (
-    <div className="space-y-3">
+    <div
+      className="space-y-3 min-w-0"
+      {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+    >
       {orderedData.map((item, index) => {
         const percentage = totalOrders > 0 ? (item.orders / totalOrders) * 100 : 0;
         const barWidth = (item.orders / maxOrders) * 100;
@@ -1231,7 +1253,7 @@ export default function Analytics() {
   const hasData = !hasError && results.some((r) => r.isSuccess);
   
   return (
-    <div className="space-y-6 pb-8">
+    <div className="space-y-6 pb-8 min-w-0 overflow-x-hidden">
       {/* ================================================================== */}
       {/* HEADER */}
       {/* ================================================================== */}
@@ -1387,9 +1409,9 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* MAIN CHARTS ROW - Trend + Status */}
           {/* ================================================================== */}
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
             {/* Trend Chart */}
-            <Card className="lg:col-span-2 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
+            <Card className="lg:col-span-2 min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1412,12 +1434,13 @@ export default function Analytics() {
                   height={280}
                   onDayClick={(date) => setSelectedDayDate(date)}
                   holidayContext={holidayContext}
+                  ariaLabel="Gráfico de tendencia diaria de pedidos recibidos"
                 />
               </CardContent>
             </Card>
             
             {/* Status Distribution */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Activity className="h-5 w-5 text-amber-500" />
@@ -1430,12 +1453,13 @@ export default function Analytics() {
                   data={statusDist} 
                   showTotal={true}
                   maxItems={6}
+                  ariaLabel="Distribución de pedidos por estado"
                 />
               </CardContent>
             </Card>
 
             {/* Tendencia de Pallets - fila 2 */}
-            <Card className="lg:col-span-2 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
+            <Card className="lg:col-span-2 min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -1459,6 +1483,7 @@ export default function Analytics() {
                 height={280}
                 onDayClick={(date) => setSelectedDayDate(date)}
                 holidayContext={holidayContext}
+                ariaLabel="Gráfico de tendencia diaria de pallets movidos"
               />
             </CardContent>
             </Card>
@@ -1467,9 +1492,9 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* PATTERNS ROW - Hourly + Weekday */}
           {/* ================================================================== */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
             {/* Hourly Pattern */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Activity className="h-5 w-5 text-cyan-500" />
@@ -1478,12 +1503,12 @@ export default function Analytics() {
                 <CardDescription>Distribución de pedidos por hora del día</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                <HourlyPatternChart data={hourlyPattern} />
+                <HourlyPatternChart data={hourlyPattern} ariaLabel="Distribución de pedidos por hora del día" />
               </CardContent>
             </Card>
             
             {/* Weekday Pattern */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Activity className="h-5 w-5 text-violet-500" />
@@ -1492,7 +1517,7 @@ export default function Analytics() {
                 <CardDescription>Distribución de pedidos por día de la semana</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                <WeekdayPatternChart data={weekdayPattern} />
+                <WeekdayPatternChart data={weekdayPattern} ariaLabel="Distribución de pedidos por día de la semana" />
               </CardContent>
             </Card>
           </div>
@@ -1500,9 +1525,9 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* TOP CLIENTS + TOP DESTINATIONS + TOP ORIGINS */}
           {/* ================================================================== */}
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
             {/* Top Clients */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1548,7 +1573,7 @@ export default function Analytics() {
             </Card>
             
             {/* Top Destinations */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1569,7 +1594,7 @@ export default function Analytics() {
             </Card>
             
             {/* Top Origins */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1593,9 +1618,9 @@ export default function Analytics() {
           {/* ================================================================== */}
           {/* GEOGRAPHIC DISTRIBUTION - Destinations + Origins */}
           {/* ================================================================== */}
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
             {/* Destinations by region */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1631,7 +1656,7 @@ export default function Analytics() {
             </Card>
 
             {/* Origins by region */}
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
@@ -1671,7 +1696,7 @@ export default function Analytics() {
           {/* FLUJOS ORIGEN → DESTINO */}
           {/* ================================================================== */}
           {originDestPairs.length > 0 && (
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl">
+            <Card className="min-w-0 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-800/70 dark:to-gray-800/40 backdrop-blur-xl overflow-hidden">
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>

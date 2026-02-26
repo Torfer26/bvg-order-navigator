@@ -90,6 +90,7 @@ export interface StatusBarChartProps {
   showTotal?: boolean;
   maxItems?: number;
   baseUrl?: string;
+  ariaLabel?: string;
 }
 
 // ============================================================================
@@ -102,6 +103,7 @@ export function StatusBarChart({
   showTotal = true,
   maxItems = 8,
   baseUrl = '/orders',
+  ariaLabel,
 }: StatusBarChartProps) {
   const total = data.reduce((sum, s) => sum + s.count, 0);
   const maxCount = Math.max(...data.map(s => s.count), 1);
@@ -118,7 +120,10 @@ export function StatusBarChart({
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4 min-w-0"
+      {...(ariaLabel && { role: 'img' as const, 'aria-label': ariaLabel })}
+    >
       {/* Header */}
       {showTotal && (
         <div className="flex items-center justify-between">
