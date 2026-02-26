@@ -187,11 +187,11 @@ export function EnhancedMetricCard({
   return (
     <div 
       className={cn(
-        "group relative p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300",
+        "group relative flex flex-col p-5 rounded-2xl border-2 cursor-pointer transition-all duration-300",
         "bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40",
         "backdrop-blur-xl shadow-lg hover:shadow-xl",
         "hover:translate-y-[-2px]",
-        "min-w-0 overflow-hidden",
+        "min-w-0 overflow-hidden min-h-[200px] h-full",
         variantStyles[variant]
       )}
       onClick={handleClick}
@@ -222,23 +222,25 @@ export function EnhancedMetricCard({
         </div>
       )}
 
-      <div className="relative z-10 min-w-0">
+      <div className="relative z-10 flex flex-col flex-1 min-w-0">
         {/* Header with icon and definition tooltip */}
-        <div className="flex items-start justify-between gap-2 mb-3 min-w-0">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2 mb-3 min-w-0 shrink-0">
+          <div className="flex items-start gap-2 min-w-0 flex-1 overflow-hidden">
             <div className={cn(
-              "p-2.5 rounded-xl text-white shadow-lg",
+              "p-2.5 rounded-xl text-white shadow-lg shrink-0",
               iconBg
             )}>
               <Icon className="h-5 w-5" />
             </div>
-            <span className="font-medium text-sm text-muted-foreground truncate">{title}</span>
+            <span className="font-medium text-sm text-muted-foreground line-clamp-2 break-words min-w-0" title={title}>
+              {title}
+            </span>
             
             {/* Definition tooltip */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <button 
-                  className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                  className="text-muted-foreground/60 hover:text-muted-foreground transition-colors shrink-0"
                   onClick={(e) => e.stopPropagation()}
                   aria-label={`Definición de ${title}`}
                 >
@@ -302,10 +304,10 @@ export function EnhancedMetricCard({
             {value.toLocaleString('es-ES')}
           </p>
           
-          {/* Comparison context - solo cuando hay datos válidos */}
+          {/* Comparison context - solo cuando hay datos válidos (texto abreviado para evitar cortes) */}
           {previousValue !== undefined && previousValue > 0 && change !== undefined && (
-            <p className="text-sm text-muted-foreground truncate">
-              vs {previousValue.toLocaleString('es-ES')} período anterior
+            <p className="text-sm text-muted-foreground line-clamp-2" title={`vs ${previousValue.toLocaleString('es-ES')} período anterior`}>
+              vs {previousValue.toLocaleString('es-ES')} ant.
             </p>
           )}
         </div>
@@ -319,14 +321,14 @@ export function EnhancedMetricCard({
 
         {/* Drill-down CTA - always visible for warning/critical, hover for default */}
         <div className={cn(
-          "mt-4 flex items-center gap-1 text-sm font-medium transition-all duration-200 truncate",
+          "mt-auto pt-4 flex items-center gap-1 text-sm font-medium transition-all duration-200 min-w-0",
           variant === 'default' 
             ? "opacity-0 group-hover:opacity-100 text-primary" 
             : variant === 'warning'
             ? "opacity-100 text-amber-700 dark:text-amber-400"
             : "opacity-100 text-red-700 dark:text-red-400"
         )}>
-          <span>{drilldownLabel}</span>
+          <span className="truncate" title={drilldownLabel}>{drilldownLabel}</span>
           <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
         </div>
       </div>
