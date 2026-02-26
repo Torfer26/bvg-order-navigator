@@ -145,7 +145,7 @@ async function getFilteredOrdersAndLines(
   let orderIds = new Set(orders.map((o: any) => String(o.id)));
 
   const linesRes = await bvgFetch(
-    `${API_BASE_URL}/ordenes_intake_lineas?select=id,intake_id,pallets,destination_id,origin_id,location_status`
+    `${API_BASE_URL}/ordenes_intake_lineas?or=(anulada.eq.false,anulada.is.null)&select=id,intake_id,pallets,destination_id,origin_id,location_status`
   );
   const allLines = linesRes.ok ? await linesRes.json() : [];
   let lines = allLines.filter((l: any) => orderIds.has(String(l.intake_id)));
