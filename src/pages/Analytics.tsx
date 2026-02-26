@@ -996,9 +996,9 @@ function AnalyticsErrorState({ onRetry }: { onRetry: () => void }) {
 export default function Analytics() {
   // Filter state
   const [filters, setFilters] = useState<AnalyticsFilters>({
-    periodPreset: '30d',
+    periodPreset: '7d',
     customRange: {
-      from: subDays(new Date(), 30),
+      from: subDays(new Date(), 7),
       to: new Date(),
     },
     comparisonPeriod: 'previous',
@@ -1192,9 +1192,9 @@ export default function Analytics() {
 
   const handleResetFilters = () => {
     setFilters({
-      periodPreset: '30d',
+      periodPreset: '7d',
       customRange: {
-        from: subDays(new Date(), 30),
+        from: subDays(new Date(), 7),
         to: new Date(),
       },
       comparisonPeriod: 'previous',
