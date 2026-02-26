@@ -126,8 +126,7 @@ function formatEventDetails(
     };
     const newStatus = statusLabels[info.new_status as string] || info.new_status;
     const changedBy = (info.changed_by || info.updated_by) as string;
-    
-    if (changedBy) {
+    if (changedBy && changedBy !== 'frontend_user') {
       const name = changedBy.includes('@')
         ? changedBy.split('@')[0].replace(/\./g, ' ').replace(/\b\w/g, c => c.toUpperCase())
         : changedBy;
@@ -199,17 +198,49 @@ export default function OrderDetail() {
   const error = queryError ? (queryError as Error).message : (id && detailData === null ? 'Order not found' : null);
   const rawLogs = detailData?.events ?? [];
 
+  // Orden lógico de steps: recibido → parsing → validación → acciones usuario
+  const stepOrder: Record<string, number> = {
+    received: 0,
+    email_received: 0,
+    parsed: 1,
+    validated: 2,
+    location_resolved: 2,
+    approved: 3,
+    status_change: 4,
+    completed: 5,
+    sent: 5,
+    reprocessed: 6,
+    error: 99,
+  };
+
   const events = useMemo(() => {
-    return rawLogs.map((log: any) => ({
-      id: log.id,
-      orderCode: order?.orderCode ?? '',
-      eventType: log.step || 'unknown',
-      timestamp: log.createdAt,
-      details: formatEventDetails(log.step, log.info, log.status),
-      actorEmail: log.info?.approved_by || log.info?.changed_by || log.info?.updated_by || undefined,
-      rawInfo: log.info,
-    }));
-  }, [rawLogs, order?.orderCode]);
+    const mapped = rawLogs.map((log: any) => {
+      const step = log.step || (log.info?.action as string) || 'unknown';
+      const isReceived = step === 'received' || log.info?.action === 'email_received';
+      // Para 'received', usar fecha real del email (ordenes_intake.email_received_at) para coincidir con "Recibido" en detalle
+      const displayTs = isReceived && order?.receivedAt ? order.receivedAt : log.createdAt;
+      return {
+        id: log.id,
+        orderCode: order?.orderCode ?? '',
+        eventType: log.step || 'unknown',
+        timestamp: displayTs,
+        details: formatEventDetails(log.step, log.info, log.status),
+        actorEmail: (() => {
+        const a = log.info?.approved_by || log.info?.changed_by || log.info?.updated_by;
+        return a && a !== 'frontend_user' ? a : undefined;
+      })(),
+        rawInfo: log.info,
+        _stepOrder: stepOrder[step] ?? 50,
+      };
+    });
+    // Ordenar por timestamp y, si empatan, por orden lógico de step
+    return mapped.sort((a, b) => {
+      const ta = typeof a.timestamp === 'string' ? new Date(a.timestamp).getTime() : a.timestamp;
+      const tb = typeof b.timestamp === 'string' ? new Date(b.timestamp).getTime() : b.timestamp;
+      if (ta !== tb) return ta - tb;
+      return (a._stepOrder ?? 50) - (b._stepOrder ?? 50);
+    }).map(({ _stepOrder, ...e }) => e);
+  }, [rawLogs, order?.orderCode, order?.receivedAt]);
 
   const invalidateOrderDetail = () => {
     queryClient.invalidateQueries({ queryKey: ['orderDetail', id] });
@@ -381,7 +412,7 @@ export default function OrderDetail() {
     
     setIsUpdatingStatus(true);
     try {
-      const result = await markOrderCompleted(order.id);
+      const result = await markOrderCompleted(order.id, user?.email);
       if (result.success) {
         toast.success('Pedido marcado como completado');
         queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
@@ -408,7 +439,7 @@ export default function OrderDetail() {
     
     setIsUpdatingStatus(true);
     try {
-      const result = await rejectOrder(order.id, rejectReason);
+      const result = await rejectOrder(order.id, rejectReason, user?.email);
       if (result.success) {
         toast.success('Pedido rechazado');
         queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
@@ -433,7 +464,7 @@ export default function OrderDetail() {
     
     setIsUpdatingStatus(true);
     try {
-      const result = await moveOrderToReview(order.id);
+      const result = await moveOrderToReview(order.id, undefined, user?.email);
       if (result.success) {
         toast.success('Pedido movido a revisión');
         queryClient.setQueryData<OrderDetailData>(['orderDetail', id], (prev) =>
