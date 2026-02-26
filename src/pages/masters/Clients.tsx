@@ -35,7 +35,7 @@ export default function Clients() {
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<string>('lastOrder_desc');
+  const [sortBy, setSortBy] = useState<string>('lastOrderAt_desc');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ code: '', name: '', email: '', active: true });
@@ -75,7 +75,7 @@ export default function Clients() {
     const [key, dir] = sortBy.split('_');
     const mult = dir === 'desc' ? -1 : 1;
     return [...result].sort((a, b) => {
-      if (key === 'lastOrder') {
+      if (key === 'lastOrderAt' || key === 'lastOrder') {
         const aVal = a.lastOrderAt ? new Date(a.lastOrderAt).getTime() : 0;
         const bVal = b.lastOrderAt ? new Date(b.lastOrderAt).getTime() : 0;
         return (aVal - bVal) * mult;
@@ -211,6 +211,7 @@ export default function Clients() {
     {
       key: 'lastOrderAt',
       header: t.clients?.lastOrder ?? 'Último pedido',
+      sortable: true,
       cell: (row) =>
         row.lastOrderAt
           ? format(new Date(row.lastOrderAt), 'dd/MM/yyyy HH:mm', { locale: dateLocale })
@@ -263,8 +264,8 @@ export default function Clients() {
             type: 'select',
             label: t.clients?.sortBy ?? 'Ordenar por',
             options: [
-              { value: 'lastOrder_desc', label: t.clients?.sortLastOrderDesc ?? 'Último pedido (más reciente)' },
-              { value: 'lastOrder_asc', label: t.clients?.sortLastOrderAsc ?? 'Último pedido (más antiguo)' },
+              { value: 'lastOrderAt_desc', label: t.clients?.sortLastOrderDesc ?? 'Último pedido (más reciente)' },
+              { value: 'lastOrderAt_asc', label: t.clients?.sortLastOrderAsc ?? 'Último pedido (más antiguo)' },
               { value: 'name_asc', label: t.clients?.sortNameAsc ?? 'Nombre A-Z' },
               { value: 'name_desc', label: t.clients?.sortNameDesc ?? 'Nombre Z-A' },
               { value: 'code_asc', label: t.clients?.sortCodeAsc ?? 'Código' },
@@ -274,9 +275,9 @@ export default function Clients() {
         values={{ search, sort: sortBy }}
         onChange={(key, value) => {
           if (key === 'search') setSearch(value || '');
-          if (key === 'sort') setSortBy(value || 'lastOrder_desc');
+          if (key === 'sort') setSortBy(value || 'lastOrderAt_desc');
         }}
-        onClear={() => { setSearch(''); setSortBy('lastOrder_desc'); }}
+        onClear={() => { setSearch(''); setSortBy('lastOrderAt_desc'); }}
       />
 
       <DataTable
@@ -284,6 +285,11 @@ export default function Clients() {
         data={filteredClients}
         keyExtractor={(row) => row.id}
         emptyMessage={t.clients.noClientsFound}
+        sort={{
+          key: sortBy.split('_')[0],
+          dir: (sortBy.split('_')[1] || 'desc') as 'asc' | 'desc',
+        }}
+        onSortChange={(key, dir) => setSortBy(`${key}_${dir}`)}
       />
 
       {/* Edit/Create Dialog */}

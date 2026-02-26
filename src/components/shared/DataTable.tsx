@@ -8,7 +8,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -33,6 +33,10 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   /** 'auto' = cards on mobile, table on desktop; 'table' = always table; 'cards' = always cards */
   responsiveMode?: 'table' | 'cards' | 'auto';
+  /** Sort state: which column and direction. Used with onSortChange for clickable headers */
+  sort?: { key: string; dir: 'asc' | 'desc' };
+  /** Called when user clicks a sortable column header */
+  onSortChange?: (key: string, dir: 'asc' | 'desc') => void;
   pagination?: {
     page: number;
     pageSize: number;
@@ -50,6 +54,8 @@ export function DataTable<T>({
   loading = false,
   emptyMessage,
   responsiveMode = 'auto',
+  sort,
+  onSortChange,
   pagination,
 }: DataTableProps<T>) {
   const { t } = useLanguage();
@@ -179,11 +185,41 @@ export function DataTable<T>({
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              {columns.map((column) => (
-                <TableHead key={column.key} className={cn('data-table-header', column.className)}>
-                  {column.header}
-                </TableHead>
-              ))}
+              {columns.map((column) => {
+                const isSortable = column.sortable && onSortChange;
+                const isActive = sort?.key === column.key;
+                const handleHeaderClick = () => {
+                  if (!isSortable) return;
+                  const newDir = isActive && sort?.dir === 'desc' ? 'asc' : 'desc';
+                  onSortChange(column.key, newDir);
+                };
+                return (
+                  <TableHead
+                    key={column.key}
+                    className={cn(
+                      'data-table-header',
+                      column.className,
+                      isSortable && 'cursor-pointer select-none hover:bg-muted/50'
+                    )}
+                    onClick={handleHeaderClick}
+                  >
+                    <div className="flex items-center gap-1">
+                      {column.header}
+                      {isSortable && (
+                        <span className="inline-flex text-muted-foreground">
+                          {!isActive ? (
+                            <ArrowUpDown className="h-4 w-4" aria-hidden />
+                          ) : sort?.dir === 'desc' ? (
+                            <ArrowDown className="h-4 w-4" aria-hidden />
+                          ) : (
+                            <ArrowUp className="h-4 w-4" aria-hidden />
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
