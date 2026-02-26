@@ -159,7 +159,7 @@ export interface Translations {
     ERROR: string;
   };
   
-  // Order events
+  // Order events (cronología / timeline)
   orderEvents: {
     received: string;
     parsed: string;
@@ -167,6 +167,8 @@ export interface Translations {
     sent: string;
     error: string;
     reprocessed: string;
+    status_change: string;
+    completed: string;
   };
   
   // DLQ
@@ -446,6 +448,8 @@ export const translations: Record<Language, Translations> = {
       sent: 'Enviado a SAP',
       error: 'Error durante validación',
       reprocessed: 'Reprocesado',
+      status_change: 'Cambio de estado',
+      completed: 'Completado',
     },
     dlq: {
       title: 'Dead Letter Queue',
@@ -707,6 +711,8 @@ export const translations: Record<Language, Translations> = {
       sent: 'Inviato a SAP',
       error: 'Errore durante la validazione',
       reprocessed: 'Rielaborato',
+      status_change: 'Cambio di stato',
+      completed: 'Completato',
     },
     dlq: {
       title: 'Dead Letter Queue',

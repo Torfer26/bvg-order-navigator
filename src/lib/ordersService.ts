@@ -123,12 +123,15 @@ export async function fetchOrderDetailData(intakeId: string): Promise<OrderDetai
   const foundOrder = await fetchOrderById(intakeId);
   if (!foundOrder) return null;
 
+  // Orders_log filtra por message_id o intake_id; no tiene conversation_id.
+  // Si falta messageId, usar intake_id aunque exista conversationId.
+  const hasMessageId = !!foundOrder.messageId;
   const [clientInfo, rawLines, logsAndTriage] = await Promise.all([
     foundOrder.clientId ? fetchClientWithDefaultLocation(foundOrder.clientId) : Promise.resolve(null),
     fetchOrderLines(intakeId),
-    foundOrder.messageId || foundOrder.conversationId
+    hasMessageId
       ? Promise.all([
-          fetchOrdersLog(foundOrder.messageId),
+          fetchOrdersLog(foundOrder.messageId!),
           fetchEmailTriageReason(foundOrder.messageId, foundOrder.conversationId),
         ])
       : Promise.all([

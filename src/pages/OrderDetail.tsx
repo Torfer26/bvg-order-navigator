@@ -141,6 +141,8 @@ function formatEventDetails(
     const actionLabels: Record<string, string> = {
       'email_received': 'Email recibido',
       'pdf_extracted': 'PDF extraído',
+      'excel_parsed': 'Excel extraído',
+      'body_extracted': 'Contenido extraído',
       'lines_created': 'Líneas creadas',
       'location_resolved': 'Ubicación resuelta',
       'validation_passed': 'Validación correcta',
@@ -675,8 +677,8 @@ export default function OrderDetail() {
     sent: t.orderEvents.sent,
     error: t.orderEvents.error,
     reprocessed: t.orderEvents.reprocessed,
-    status_change: 'Cambio de estado',
-    completed: 'Completado',
+    status_change: t.orderEvents.status_change,
+    completed: t.orderEvents.completed,
   };
 
   return (
