@@ -82,12 +82,14 @@ import {
 // ============================================================================
 function AreaChart({
   data,
+  metric = 'orders',
   height = 280,
   showLabels = true,
   onDayClick,
   holidayContext,
 }: { 
   data: DailyTrend[]; 
+  metric?: 'orders' | 'pallets';
   height?: number;
   showLabels?: boolean;
   onDayClick?: (date: string) => void;
@@ -103,26 +105,29 @@ function AreaChart({
       </div>
     );
   }
-  
+
+  const valueKey = metric === 'pallets' ? 'pallets' : 'orders';
+  const labelSingular = metric === 'pallets' ? 'pallets' : 'pedidos';
+
   // Calculate totals
-  const totalOrders = data.reduce((sum, d) => sum + d.orders, 0);
-  const maxOrders = Math.max(...data.map(d => d.orders), 1);
-  const daysWithOrders = data.filter(d => d.orders > 0).length;
-  const avgOrders = daysWithOrders > 0 ? Math.round(totalOrders / daysWithOrders) : 0;
+  const total = data.reduce((sum, d) => sum + d[valueKey], 0);
+  const maxVal = Math.max(...data.map(d => d[valueKey]), 1);
+  const daysWithData = data.filter(d => d[valueKey] > 0).length;
+  const avgVal = daysWithData > 0 ? Math.round(total / daysWithData) : 0;
   
   // Today indicator
   const today = format(new Date(), 'yyyy-MM-dd');
   const todayData = data.find(d => d.date === today);
   
   // Calculate nice round numbers for Y axis  
-  const yAxisMax = Math.max(Math.ceil(maxOrders * 1.15 / 5) * 5, 10);
+  const yAxisMax = Math.max(Math.ceil(maxVal * 1.15 / 5) * 5, 10);
   const yAxisSteps = [0, Math.round(yAxisMax * 0.25), Math.round(yAxisMax * 0.5), Math.round(yAxisMax * 0.75), yAxisMax];
   
   // Trend calculation (comparing first half vs second half)
   const firstHalf = data.slice(0, Math.floor(data.length / 2));
   const secondHalf = data.slice(Math.floor(data.length / 2));
-  const firstHalfSum = firstHalf.reduce((sum, d) => sum + d.orders, 0);
-  const secondHalfSum = secondHalf.reduce((sum, d) => sum + d.orders, 0);
+  const firstHalfSum = firstHalf.reduce((sum, d) => sum + d[valueKey], 0);
+  const secondHalfSum = secondHalf.reduce((sum, d) => sum + d[valueKey], 0);
   const trendPct = firstHalfSum > 0 ? ((secondHalfSum - firstHalfSum) / firstHalfSum) * 100 : 0;
   
   // Date label logic
@@ -138,12 +143,17 @@ function AreaChart({
 
   return (
     <div className="relative w-full select-none" style={{ height }}>
-      {/* Today's orders badge - con contexto si es fin de semana */}
+      {/* Today's value badge - con contexto si es fin de semana */}
       {todayData && (
         <div className="absolute top-0 left-12 flex items-center gap-2 text-xs">
-          <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium">
-            Hoy: {todayData.orders} pedidos
-            {todayData.orders === 0 && (() => {
+          <span className={cn(
+            "px-2 py-0.5 rounded font-medium",
+            metric === 'pallets' 
+              ? "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300"
+              : "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+          )}>
+            Hoy: {todayData[valueKey]} {labelSingular}
+            {todayData[valueKey] === 0 && (() => {
               const now = new Date();
               const day = now.getDay();
               if (day === 0) return ' — domingo';
@@ -203,13 +213,13 @@ function AreaChart({
         </div>
         
         {/* Average reference line (only if meaningful) */}
-        {avgOrders > 0 && avgOrders < yAxisMax && (
+        {avgVal > 0 && avgVal < yAxisMax && (
           <div 
             className="absolute w-full border-t-2 border-amber-500/60 pointer-events-none z-10"
-            style={{ bottom: `${(avgOrders / yAxisMax) * 100}%` }}
+            style={{ bottom: `${(avgVal / yAxisMax) * 100}%` }}
           >
             <span className="absolute right-1 -translate-y-1/2 text-[9px] text-amber-600 dark:text-amber-400 bg-card/90 px-1 rounded font-medium">
-              Prom: {avgOrders}
+              Prom: {avgVal}
             </span>
           </div>
         )}
@@ -217,9 +227,9 @@ function AreaChart({
         {/* Bars container */}
         <div className="absolute inset-x-2 inset-y-0 flex items-end gap-[3px]">
           {data.map((d, i) => {
-            const barHeight = (d.orders / yAxisMax) * 100;
+            const barHeight = (d[valueKey] / yAxisMax) * 100;
             const isToday = d.date === today;
-            const hasOrders = d.orders > 0;
+            const hasData = d[valueKey] > 0;
             const isClickable = !!onDayClick;
             
             return (
@@ -234,27 +244,32 @@ function AreaChart({
                   isClickable && "cursor-pointer"
                 )}
                 style={{ minWidth: 0 }}
-                title={isClickable ? `${format(new Date(d.date), 'EEEE, d MMM', { locale: es })} — Clic para ver pedidos` : undefined}
+                title={isClickable ? `${format(new Date(d.date), 'EEEE, d MMM', { locale: es })} — Clic para ver ${labelSingular}` : undefined}
               >
                 {/* Bar */}
                 <div 
                   className={cn(
                     "w-full transition-all duration-200 rounded-t-sm",
                     isToday 
-                      ? "bg-blue-500 group-hover:bg-blue-600" 
-                      : hasOrders
-                        ? "bg-slate-500 dark:bg-slate-400 group-hover:bg-slate-600 dark:group-hover:bg-slate-300"
+                      ? metric === 'pallets' ? "bg-emerald-500 group-hover:bg-emerald-600" : "bg-blue-500 group-hover:bg-blue-600"
+                      : hasData
+                        ? metric === 'pallets'
+                          ? "bg-emerald-500/80 dark:bg-emerald-400/80 group-hover:bg-emerald-600 dark:group-hover:bg-emerald-300"
+                          : "bg-slate-500 dark:bg-slate-400 group-hover:bg-slate-600 dark:group-hover:bg-slate-300"
                         : "bg-slate-200 dark:bg-slate-700"
                   )}
                   style={{ 
-                    height: hasOrders ? `${Math.max(barHeight, 3)}%` : '2px',
-                    minHeight: hasOrders ? '4px' : '2px'
+                    height: hasData ? `${Math.max(barHeight, 3)}%` : '2px',
+                    minHeight: hasData ? '4px' : '2px'
                   }}
                 />
                 
                 {/* Today indicator dot */}
                 {isToday && (
-                  <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-blue-500 rounded-full" />
+                  <div className={cn(
+                    "absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full",
+                    metric === 'pallets' ? "bg-emerald-500" : "bg-blue-500"
+                  )} />
                 )}
                 
                 {/* Tooltip */}
@@ -263,7 +278,7 @@ function AreaChart({
                 >
                   <div className={cn(
                     "text-white text-xs rounded shadow-lg whitespace-nowrap px-2.5 py-1.5",
-                    isToday ? "bg-blue-600" : "bg-slate-800"
+                    metric === 'pallets' ? (isToday ? "bg-emerald-600" : "bg-emerald-800") : (isToday ? "bg-blue-600" : "bg-slate-800")
                   )}>
                     <div className="text-white/70 text-[10px] font-medium flex items-center gap-1">
                       {isToday && <span className="w-1.5 h-1.5 bg-white rounded-full" />}
@@ -271,9 +286,9 @@ function AreaChart({
                       {isToday && <span className="text-white font-semibold">(HOY)</span>}
                     </div>
                     <div className="mt-0.5 font-bold tabular-nums text-sm">
-                      {d.orders} <span className="font-normal text-white/70">pedidos</span>
+                      {d[valueKey]} <span className="font-normal text-white/70">{labelSingular}</span>
                     </div>
-                    {d.pallets > 0 && (
+                    {metric === 'orders' && d.pallets > 0 && (
                       <div className="text-white/60 text-[10px] tabular-nums">
                         {d.pallets} pallets
                       </div>
@@ -309,7 +324,9 @@ function AreaChart({
               <div key={d.date} className="flex-1 flex justify-center">
                 <span className={cn(
                   "text-[10px] whitespace-nowrap tabular-nums",
-                  isToday ? "text-blue-600 dark:text-blue-400 font-semibold" : "text-muted-foreground"
+                  isToday 
+                    ? (metric === 'pallets' ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-blue-600 dark:text-blue-400 font-semibold")
+                    : "text-muted-foreground"
                 )}>
                   {isToday ? 'Hoy' : format(new Date(d.date), 'dd/MM', { locale: es })}
                 </span>
@@ -1415,6 +1432,35 @@ export default function Analytics() {
                   maxItems={6}
                 />
               </CardContent>
+            </Card>
+
+            {/* Tendencia de Pallets - fila 2 */}
+            <Card className="lg:col-span-2 border-0 shadow-xl bg-gradient-to-br from-white/80 to-white/40 dark:from-gray-900/80 dark:to-gray-900/40 backdrop-blur-xl overflow-hidden">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-lg font-semibold flex items-center gap-2">
+                    <Package className="h-5 w-5 text-emerald-500" />
+                    Tendencia de Pallets
+                  </CardTitle>
+                  <CardDescription>
+                    Evolución diaria del volumen de pallets movidos
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="font-semibold">
+                  {dailyTrend.reduce((sum, d) => sum + d.pallets, 0).toLocaleString('es-ES')} total
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-4">
+              <AreaChart
+                data={dailyTrend}
+                metric="pallets"
+                height={280}
+                onDayClick={(date) => setSelectedDayDate(date)}
+                holidayContext={holidayContext}
+              />
+            </CardContent>
             </Card>
           </div>
           
